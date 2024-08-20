@@ -1,0 +1,26 @@
+{
+    "api": "https://codeberg.org/api/v1",
+    "settings": {
+        "aliases": [
+            {
+                "alias": "i",
+                "type": "path",
+                "path": "/repos/{owner}/{repo}/issues"
+            },
+            {
+              "alias": "create",
+              "type": "method",
+              "method": "POST"
+            },
+            {
+              "alias": "tea",
+              "type": "bin",
+              "bin": "tea"
+            }
+        ]
+    },
+    "bin": {
+      "linux": [{"x86": "https://dl.gitea.com/tea/main/tea-main-linux-amd64.xz"}]
+    }
+}
+
