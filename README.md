@@ -1,4 +1,4 @@
-# Command line getting from browser
+# Browser command line
 
 The idea is to transform api methods in command line interface
 
@@ -119,7 +119,19 @@ By default, all request in clearnet and tor go via `https`, but i2p - `http`.
 But sometimes you need to specify a specific protocol
 
 ```sh
-pwact bin "git+http://codeberg.org/"
+wacli bin "git+http://codeberg.org/"
 ```
 
 Binaries is install of user directory `$HOME/.local/bin`, for root user - `/usr/local/bin`.
+
+Perhaps not everyone will add tools to their sites, so for popular tools using directive:
+
+```sh
+wacli registry:codeberg repos issues
+```
+
+You can also get help on all api methods using the command
+
+```sh
+wacli help codeberg.org
+```
