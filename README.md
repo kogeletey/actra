@@ -37,13 +37,13 @@ On your website you will need to use `.well-know/wacli.json` file:
         "contentType": "application/json",
         "aliases": [{
             "alias": "<short_hand>" | ["short_hand","long_hand"], 
-            "type": "path" | "method",
+            "type": "path" | "method" | "bin",
             "description": "description of cli command"
-            "path": "<path>"
+            "content": "<path>"
         }],
         "auth": {
-            "sheme": "basic" | "bearer" | "oauth2"
-            "token": "<name_of_token>" // - bearer
+            "scheme": "basic" | "bearer" | "oauth2"
+            "tokenName": "<name_of_token>" // - bearer
             // oauth2
             "flows": { 
                 "implict": {
@@ -60,50 +60,55 @@ On your website you will need to use `.well-know/wacli.json` file:
 
 ```json
 {
-    "api": "https://codeberg.org/api/v1",
+    "api": "https://git.0ut0f.space/swagger.v1.json",
     "settings": {
         "aliases": [
             {
-                "alias": "i",
+                "alias": "issues",
                 "type": "path",
-                "path": "/repos/{owner}/{repo}/issues"
+                "content": "/repos/{owner}/{repo}/issues"
             },
             {
-              "alias": "create",
+              "alias": ["c","create"],
               "type": "method",
-              "method": "POST"
+              "content": "POST"
             },
             {
               "alias": "tea",
               "type": "bin",
-              "bin": "tea"
+              "content": "tea"
             }
         ]
     },
     "bin": {
-      "linux": [{"x86": "https://dl.gitea.com/tea/main/tea-main-linux-amd64.xz"}]
+      "linux": [{"x86": "https://dl.gitea.com/tea/main/tea-main-linux-amd64.xz"}],
+      "windows": [{"x86": "https://dl.gitea.com/tea/main/tea-main-windows-amd64.xz"}],
+      "darwin": [
+          {"arm64": "https://dl.gitea.com/tea/main/tea-main-darwin-arm64"},
+          {"x86": "https://dl.gitea.com/tea/main/tea-main-darwin-amd64.xz"}
+      ]
     }
 }
 ```
 
-Next REST API - `https://codeberg.org/api/v1/repos/{owner}/{repo}/issues` method is transform command:
+Next REST API - `https://git.0ut0f.space/api/v1/repos/{owner}/{repo}/issues` method is transform command:
 
 By default - GET request:
 
 ```sh
-wacli codeberg.org repos issues [owner] [repo]
+wacli git.0ut0f.space repos issues [owner] [repo]
 ```
 
 If you need a request other than GET, then add the command
 
 ```sh
-wacli codeberg.org post|delete|put|path repos issues [owner] [repo]
+wacli git.0ut0f.space post|delete|put|path repos issues [owner] [repo]
 ```
 
 Such requests may require authorization, so you must log in separately:
 
 ```sh
-wacli auth codeberg.org
+wacli auth git.0ut0f.space
 ```
 
 tokens are stored separately in the database.
@@ -111,7 +116,7 @@ tokens are stored separately in the database.
 Methods can be overridden:
 
 ```sh
-wacli codeberg.org create repos issues [owner] [repo]
+wacli git.0ut0f.space create repos issues [owner] [repo]
 ```
 
 By default, all request in clearnet and tor go via `https`, but i2p - `http`.
@@ -119,7 +124,7 @@ By default, all request in clearnet and tor go via `https`, but i2p - `http`.
 But sometimes you need to specify a specific protocol
 
 ```sh
-wacli bin "git+http://codeberg.org/"
+wacli bin "git+http://git.0ut0f.space/"
 ```
 
 Binaries is install of user directory `$HOME/.local/bin`, for root user - `/usr/local/bin`.
@@ -127,7 +132,7 @@ Binaries is install of user directory `$HOME/.local/bin`, for root user - `/usr/
 Perhaps not everyone will add tools to their sites, so for popular tools using directive:
 
 ```sh
-wacli registry:codeberg repos issues
+wacli registry:forgejo repos issues
 ```
 
 You can also get help on all api methods using the command
