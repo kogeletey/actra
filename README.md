@@ -35,6 +35,7 @@ On your website you will need to use `.well-know/wacli.json` file:
     "settings": {
         // By default using application json, and it doesn't need to be specified
         "contentType": "application/json",
+        "headers": Array<headers>,
         "aliases": [{
             "alias": "<short_hand>" | ["short_hand","long_hand"], 
             "type": "path" | "method" | "bin",
@@ -135,8 +136,33 @@ Perhaps not everyone will add tools to their sites, so for popular tools using d
 wacli registry:forgejo repos issues
 ```
 
+You can create registry, by writing to `.well-know/wacli.json` next lines
+
+```json
+{
+    "registry": true,
+    "manifests": {
+        "<name_tool>": {
+            "path": "<path_to_file_of_wacli_format>"
+        }
+    }
+}
+```
+
 You can also get help on all api methods using the command
 
 ```sh
 wacli help codeberg.org
+```
+
+Settings format is on Linux by address `$HOME/.config/wacli/wacfg.json`
+
+```json
+{
+    "db_path": "<path_of_secrets_db>",
+    "install_dir": "<path_of_install_tools>",
+    "uri_schemes": {
+        "registry": "<default_registry_website>"
+    }
+}
 ```
