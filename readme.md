@@ -1,42 +1,62 @@
-# Командная строка из браузера
+# Command line getting from browser
 
-Идея состоит в том, чтобы создать браузер, который сможет превращать api интерфес
-в интерфейс командной строки.
+The idea is to transform api methods in command line interface
 
-Схема 
-
-```sh
-pwact <tool.dns> <api_header> <api_methods>
-```
-
-А так же установить локально
+The default shell command, like:
 
 ```sh
-pwact <tool.dns> install
+wacli <tool.dns> <api_methods>
 ```
 
-Чтобы это заработало, необходимо использовать `.well-know` URL 
+You can also install localy
 
-```json
+Binary, if exist
+
+```sh
+wacli bin <tool.dns>
+```
+
+API
+
+```sh
+wacli ain <tool.dns>
+```
+
+On your website you will need to use `.well-know/wacli.json` file:
+
+```jsonc
 {
-    "api": "https://codeberg.org/api/v1",
+    "api": "<api_url>",
     "bin": {
         "<platform>": [{
             "<architecture>": "<path_for_file" 
         }]
     }
     "settings": {
+        // By default using application json, and it doesn't need to be specified
+        "contentType": "application/json",
         "aliases": [{
-            "alias": "i", 
-            "type": "path",
+            "alias": "<short_hand>" | ["short_hand","long_hand"], 
+            "type": "path" | "method",
+            "description": "description of cli command"
             "path": "<path>"
-        }]
+        }],
+        "auth": {
+            "sheme": "basic" | "bearer" | "oauth2"
+            "token": "<name_of_token>" // - bearer
+            // oauth2
+            "flows": { 
+                "implict": {
+                    authorizationUrl: "url",
+                    scopes: {}
+                }
+            }
+        }
     }
 }
 ```
 
-
-Например:
+## Example as:
 
 ```json
 {
@@ -66,50 +86,40 @@ pwact <tool.dns> install
 }
 ```
 
+Next REST API - `https://codeberg.org/api/v1/repos/{owner}/{repo}/issues` method is transform command:
 
-
-Метод REST API - `https://codeberg.org/api/v1/repos/{owner}/{repo}/issues` превратиться в следующий код
-
-По умолчанию get запрос
+By default - GET request:
 
 ```sh
-pwact api codeberg.org repos issues [owner] [repo]
+wacli codeberg.org repos issues [owner] [repo]
 ```
 
-Если нужно отправить post запрос, то
+If you need a request other than GET, then add the command
 
 ```sh
-pwact api codeberg.org post --auth repos issues [owner] [repo]
+wacli codeberg.org post|delete|put|path repos issues [owner] [repo]
 ```
 
-токены хранятся в отдельной базе данных, независимо от репозитория.
-
-Методы перед pwact можно переопределить
+Such requests may require authorization, so you must log in separately:
 
 ```sh
-pwact api codeberg.org create --auth repos issues [owner] [repo]
+wacli auth codeberg.org
 ```
 
-Установить и запустить инструмент в изолированном контексте можно
+tokens are stored separately in the database.
+
+Methods can be overridden:
 
 ```sh
-pwact api codeberg.org install
+wacli codeberg.org create repos issues [owner] [repo]
 ```
 
-Все те же методы работают с бинарниками.
+By default, all request in clearnet and tor go via `https`, but i2p - `http`.
+
+But sometimes you need to specify a specific protocol
 
 ```sh
-pwact bin codeberg.org install
+pwact bin "git+http://codeberg.org/"
 ```
 
-В настройка самого инструмента может быть настройка, которая определить по умолчанию запускать бинарники или api. Так же можно не писать `api` или `bin` если в манифесте указан только один параметр
-
-По умолчанию все запросы в clearnet иду по `https`, tor и i2p - `http`.
-Но можно указать и конкретный протокол
-
-```sh
-pwact bin "http://codeberg.org" install
-```
-
-В случае выполнения команды по установки бинарников, даже если они не указаны в manifest на сайте, то могут быть скачаны с [репозиториия pkgx](https://github.com/pkgxdev/pantry)
-Устанавливаются в случае пользователя в директорию `~/.local/bin`, в случае root `/usr/local/bin/`
+Binaries is install of user directory `$HOME/.local/bin`, for root user - `/usr/local/bin`.
