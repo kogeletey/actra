@@ -1,6 +1,6 @@
 # Browser command line
 
-The idea is to transform api methods in command line interface
+The idea is to transform api methods into command line interface
 
 The default shell command, like:
 
@@ -24,7 +24,7 @@ wacli ain <tool.dns>
 
 On your website you will need to use `.well-know/wacli.json` file:
 
-```jsonc
+```js
 {
     "api": "<api_url>",
     "bin": {
@@ -38,7 +38,7 @@ On your website you will need to use `.well-know/wacli.json` file:
         "headers": Array<headers>,
         "aliases": [{
             "alias": "<short_hand>" | ["short_hand","long_hand"], 
-            "type": "path" | "method" | "bin",
+            "type": "path" | "method" | "bin" | "uri",
             "description": "description of cli command"
             "content": "<path>"
         }],
@@ -152,7 +152,7 @@ You can create registry, by writing to `.well-know/wacli.json` next lines
 You can also get help on all api methods using the command
 
 ```sh
-wacli help codeberg.org
+wacli help git.0ut0f.space
 ```
 
 Settings format is on Linux by address `$HOME/.config/wacli/wacfg.json`

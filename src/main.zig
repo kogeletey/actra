@@ -1,24 +1,18 @@
 const std = @import("std");
 
-pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+const OauthFlows = struct { implict: struct { authrizationUrl: []const u8, scopes: std.StringHashMap([]const u8) } };
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+const WellKnownSettings = struct {
+    contentType: []const u8 = "application/json",
+    headers: ?[]const ([]const u8),
+    aliases: ?[]const struct { aliases: union { string: []const u8, array: []const []const u8 }, type: enum { path, method, bin, uri }, description: ?[]const u16, content: ?[]const u8 },
+    auth: ?struct { scheme: enum { basic, bearer, oauth2 }, tokenName: ?[]const u8, flows: ?OauthFlows },
+};
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+const WellKnownSchema = struct { api: ?[]const u8, registry: bool = false, manifests: ?std.StringHashMap(struct { path: []const u8 }), bin: ?[]const std.StringHashMap([]const u8), settings: WellKnownSettings };
 
-    try bw.flush(); // don't forget to flush!
-}
+const UserSettings = struct { db_path: []const u8 = "$HOME/.cache/wacrd.bin", install_dir: []const u8 = "$HOME/.local/bin", uri_shemes: ?std.StringHashMap([]const u8) };
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
+pub fn main() !void {}
+
+test "spec" {}

@@ -1,0 +1,8 @@
+{
+    "db_path": "$HOME/.cache/wacrd.db",
+    "install_dir": "$HOME/.local/bin",
+    "uri_schemes": {
+        "registry": "https://wacli.ofs.lol"
+    }
+}
+
