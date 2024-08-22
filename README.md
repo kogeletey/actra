@@ -166,3 +166,29 @@ Settings format is on Linux by address `$HOME/.config/wacli/wacfg.json`
     }
 }
 ```
+
+Packages installed stored into lock file in json format, by path `$HOME/.config/wacli/wa.lock`
+
+```json
+{
+    "fileVersion": 1,
+    "bins": {
+        "<tool_name>": {
+            integrity: "<sha256>",
+            source: "<source_url_downloaded>",
+            installPath: "<install_tool_path>",
+            alias?: "<name_of_alias_if_exist>",
+            version: "<version_downloaded>"
+        }
+    },
+    "ains": {
+        "<tool_name>": {
+            integrity: "<sha256>",
+            source: "<source_url_api>",
+            installPath: "<install_tool_path_schema>",
+            alias?: "<name_of_alias_if_exist>",
+            version: "<version_downloaded>"
+        }
+    }
+}
+```
