@@ -21,6 +21,20 @@ const Aliases = struct {
     content: []const u8,
 };
 
+const Tools = std.json.ArrayHashMap(struct {
+    integrity: [std.crypto.hash.sha256.Sha256.digest_length]u8,
+    source: []const u8,
+    installPath: []const u8,
+    alias: ?[]const u8 = null,
+    version: []const u8,
+});
+
+const LockFile = struct {
+    fileVersion: i8 = 1,
+    bins: Tools,
+    ains: Tools
+};
+
 const OauthFlows = struct { implict: struct { authrizationUrl: []const u8, scopes: std.json.ArrayHashMap([]const u8) } };
 
 const WellKnownSettings = struct {
@@ -34,8 +48,6 @@ const WellKnownSchema = struct { api: ?[]const u8 = null, registry: ?bool = fals
 
 const UserSettings = struct { db_path: []const u8 = "$HOME/.cache/wacrd.db", install_dir: []const u8 = "$HOME/.local/bin", uri_schemes: ?std.json.ArrayHashMap([]const u8) = null };
 
-const json = std.json;
-
 pub fn getHomeDir() !?std.fs.Dir {
     return try std.fs.openDirAbsolute(std.posix.getenv("HOME") orelse {
         return null;
@@ -48,16 +60,36 @@ pub fn getXDGConfigHomeDir() !?std.fs.Dir {
     }, .{ .iterate = true });
 }
 
-pub fn readTypedConfig(allocator: std.mem.Allocator, comptime T: type, filePath: []const u8, buffer_size: usize) !json.Parsed(T) {
+pub fn readTypedConfig(allocator: std.mem.Allocator, comptime T: type, filePath: []const u8, buffer_size: usize) !std.json.Parsed(T) {
     const contents = try std.fs.cwd().readFileAlloc(allocator, filePath, buffer_size);
     defer allocator.free(contents);
-    return json.parseFromSlice(T, allocator, contents, .{
+    return std.json.parseFromSlice(T, allocator, contents, .{
         .allocate = .alloc_always,
         .ignore_unknown_fields = true,
     });
 }
 
+pub fn fetchResource(allocator: std.mem.Allocator, api: ?[]const u8,) !struct{ std.http.Status, std.ArrayList(u8)} {
+    const http = std.http;
+    var client = http.Client{ .allocator = allocator };
+    defer client.deinit();
+    var list = std.ArrayList(u8).init(allocator);
+    const fetch = try client.fetch(.{.location = .{.url = api.?}, .method = .GET, .response_storage = .{.dynamic = &list}});
+    return .{ fetch.status, list};
+}
+
 pub fn main() !void {}
+
+test "fetch openapi schema" {
+    const parsedWaCLISchema = try readTypedConfig(std.testing.allocator, WellKnownSchema, "examples/git.0ut0f.space/.well-known/wacli.json", 2048);
+    defer parsedWaCLISchema.deinit();
+    const waCLISchema = parsedWaCLISchema.value;
+    const status, const data = try fetchResource(std.testing.allocator,waCLISchema.api);
+    defer data.deinit();
+
+    std.debug.print("{u}\n",.{status});
+    std.debug.print("{s}\n",.{data.items});
+}
 
 test "parse registry schema:" {
     const parsedExampleSettings = try readTypedConfig(std.testing.allocator, UserSettings, "examples/settings.json", 512);
