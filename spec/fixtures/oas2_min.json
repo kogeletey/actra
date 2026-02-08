@@ -1,0 +1,21 @@
+{
+  "swagger": "2.0",
+  "host": "example.com",
+  "basePath": "/api",
+  "schemes": ["https"],
+  "paths": {
+    "/repos/{owner}/{repo}/issues": {
+      "get": {
+        "responses": {
+          "200": { "description": "ok" }
+        }
+      },
+      "post": {
+        "responses": {
+          "201": { "description": "created" }
+        }
+      }
+    }
+  }
+}
+

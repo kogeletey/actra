@@ -1,194 +1,265 @@
-# Browser command line
+# wacli
 
-The idea is to transform api methods into command line interface
+Turn a website's OpenAPI/Swagger JSON into a CLI.
 
-The default shell command, like:
+Status: v0.1 (Crystal). The core implemented pieces are:
+- `.well-known/wacli.json` manifest parsing and fetching (with deprecated fallback to `.well-know/wacli.json`)
+- OpenAPI JSON detection (Swagger 2.0, OpenAPI 3.0, OpenAPI 3.1)
+- Operation routing by path tokens
+- `wacli oas validate` internal compatibility check
 
-```sh
-wacli <tool.dns> <api_methods>
-```
+## Install (mise)
 
-You can also install localy
+This repo is intended to be built with `mise`.
 
-Binary, if exist
-
-```sh
-wacli bin <tool.dns>
-```
-
-API
+1. Install tools:
 
 ```sh
-wacli ain <tool.dns>
+mise install
 ```
 
-On your website you will need to use `.well-know/wacli.json` file:
+2. Install Crystal deps and run tests:
 
-```js
-{
-    "api": "<api_url>",
-    "bin": {
-        "<platform>": [{
-            "<architecture>": "<path_for_file" 
-        }]
-    }
-    "settings": {
-        // By default using application json, and it doesn't need to be specified
-        "contentType": "application/json",
-        "headers": Array<headers>,
-        "aliases": [{
-            "alias": "<short_hand>" | ["short_hand","long_hand"], 
-            "type": "path" | "method" | "bin" | "uri",
-            "description": "description of cli command"
-            "content": "<path>"
-        }],
-        "auth": {
-            "scheme": "basic" | "bearer" | "oauth2"
-            "tokenName": "<name_of_token>" // - bearer
-            // oauth2
-            "flows": { 
-                "implict": {
-                    authorizationUrl: "url",
-                    scopes: {}
-                }
-            }
-        }
-    }
-}
+```sh
+mise exec -- shards install
+mise run test
 ```
 
-## Example as:
+3. Build:
+
+```sh
+mise run build
+```
+
+The binary will be at `bin/wacli`.
+
+## CLI
+
+### Validate OpenAPI JSON compatibility
+
+```sh
+wacli oas validate <file_or_url>
+```
+
+Exit codes:
+- `0`: compatible (parseable + has `paths`)
+- `2`: valid JSON but unsupported OpenAPI version
+- `3`: invalid JSON or missing required OpenAPI fields (for v0.1: missing/invalid `paths`)
+
+### Fetch tool spec (`ain`)
+
+Downloads a tool manifest, then downloads its OpenAPI JSON and caches it (and records it in the lock file).
+
+```sh
+wacli ain <tool_ref>
+```
+
+### Show tool operations (`help`)
+
+```sh
+wacli help <tool_ref>
+```
+
+### Store bearer token
+
+```sh
+wacli auth <tool_ref> --bearer TOKEN
+```
+
+Tokens are stored in a sqlite DB (`db_path` from config).
+The token is applied in both modes:
+- manifest mode (`.well-known/wacli.json`)
+- fallback mode (`/openapi.json` or `/swagger.json`)
+
+### Execute a request (v0.1)
+
+```sh
+wacli <tool_ref> [method] <path_tokens...> [key=value...] [--json STR] [--header k:v] [--dry-run]
+```
+
+Notes:
+- `method` is optional; defaults to `GET`.
+- `path_tokens` are matched against an OpenAPI path template. Example template `/repos/{owner}/{repo}/issues` matches tokens `repos alice demo issues`.
+- `key=value` args become query parameters.
+- `--json` sets the request body and defaults `Content-Type` to `application/json` if not already specified in headers.
+- `--dry-run` prints the resolved request instead of sending it.
+
+## Shell Mode (bash/zsh)
+
+To call tools directly from your shell without typing `wacli` each time, generate aliases:
+
+```sh
+eval "$(wacli shell bash example.org)"
+example.org get ping --dry-run
+```
+
+For all locally installed/cached tools (from `wa.lock`):
+
+```sh
+eval "$(wacli shell bash --installed)"
+```
+
+## Tool Reference (`tool_ref`)
+
+`tool_ref` forms:
+- `example.com` (assumes `https://example.com`)
+- `https://example.com` (explicit)
+- `registry:<name>` (resolved using config `uri_schemes.registry`)
+
+## Website Manifest: `.well-known/wacli.json`
+
+Your website should host:
+- `https://<host>/.well-known/wacli.json`
+
+For backward compatibility, `wacli` also tries:
+- `https://<host>/.well-know/wacli.json` (deprecated)
+
+Fallback (when no manifest exists):
+- `https://<host>/openapi.json`
+- `https://<host>/swagger.json`
+
+In fallback mode, `wacli` treats the OpenAPI JSON as the tool spec (no headers/aliases/auth from a manifest).
+
+## Resolution Order (What wacli Tries First)
+
+When you run `wacli <tool_ref> ...`, the resolution order is:
+
+1. Local tool manifest override: `$XDG_CONFIG_HOME/wacli/tools/<tool>.json` (for aliases/headers/auth)
+2. Local cached OpenAPI JSON from `wacli ain <tool_ref>` (for the OpenAPI spec)
+3. Remote manifest: `https://<host>/.well-known/wacli.json` (then `/.well-know/wacli.json`)
+4. Remote fallback: `https://<host>/openapi.json` then `https://<host>/swagger.json`
+
+## Local Tools And Aliases
+
+You can define local per-tool aliases/headers/auth by creating a local manifest override:
+
+- `$XDG_CONFIG_HOME/wacli/tools/<tool>.json` (default: `$HOME/.config/wacli/tools/<tool>.json`)
+
+Where `<tool>` is derived from the tool reference (for example `example.org.json`).
+This file has the same schema as `.well-known/wacli.json` (tool manifest).
+
+You can also pass a manifest file path directly as `<tool_ref>`:
+
+```sh
+wacli help ./mytool.json
+```
+
+### Tool Manifest
+
+Minimal:
 
 ```json
 {
-    "api": "https://git.0ut0f.space/swagger.v1.json",
-    "settings": {
-        "aliases": [
-            {
-                "alias": "issues",
-                "type": "path",
-                "content": "/repos/{owner}/{repo}/issues"
-            },
-            {
-              "alias": ["c","create"],
-              "type": "method",
-              "content": "POST"
-            },
-            {
-              "alias": "tea",
-              "type": "bin",
-              "content": "tea"
-            }
-        ]
-    },
-    "bin": {
-      "linux": [{"x86": "https://dl.gitea.com/tea/main/tea-main-linux-amd64.xz"}],
-      "windows": [{"x86": "https://dl.gitea.com/tea/main/tea-main-windows-amd64.xz"}],
-      "darwin": [
-          {"arm64": "https://dl.gitea.com/tea/main/tea-main-darwin-arm64"},
-          {"x86": "https://dl.gitea.com/tea/main/tea-main-darwin-amd64.xz"}
-      ]
-    }
+  "api": "https://example.com/openapi.json"
 }
 ```
 
-Next REST API - `https://git.0ut0f.space/api/v1/repos/{owner}/{repo}/issues` method is transform command:
-
-By default - GET request:
-
-```sh
-wacli git.0ut0f.space repos issues [owner] [repo]
-```
-
-If you need a request other than GET, then add the command
-
-```sh
-wacli git.0ut0f.space post|delete|put|path repos issues [owner] [repo]
-```
-
-Such requests may require authorization, so you must log in separately:
-
-```sh
-wacli auth git.0ut0f.space
-```
-
-tokens are stored separately in the database.
-
-Methods can be overridden:
-
-```sh
-wacli git.0ut0f.space create repos issues [owner] [repo]
-```
-
-By default, all request in clearnet and tor go via `https`, but i2p - `http`.
-
-But sometimes you need to specify a specific protocol
-
-```sh
-wacli bin "git+http://git.0ut0f.space/"
-```
-
-Binaries is install of user directory `$HOME/.local/bin`, for root user - `/usr/local/bin`.
-
-Perhaps not everyone will add tools to their sites, so for popular tools using directive:
-
-```sh
-wacli registry:forgejo repos issues
-```
-
-You can create registry, by writing to `.well-know/wacli.json` next lines
+Full (v0.1 fields):
 
 ```json
 {
-    "registry": true,
-    "manifests": {
-        "<name_tool>": {
-            "path": "<path_to_file_of_wacli_format>"
-        }
+  "api": "https://example.com/openapi.json",
+  "settings": {
+    "headers": [
+      { "name": "Accept", "value": "application/json" }
+    ],
+    "aliases": [
+      {
+        "alias": "issues",
+        "type": "path",
+        "content": "/repos/{owner}/{repo}/issues"
+      }
+    ],
+    "auth": {
+      "scheme": "bearer",
+      "tokenName": "Authorization"
     }
+  }
 }
 ```
 
-You can also get help on all api methods using the command
+Alias behavior (v0.1):
+- `type: "path"` aliases replace a matching token with `content` split by `/`.
+- Placeholder segments like `{owner}` will consume subsequent CLI tokens as values.
+
+Auth behavior (v0.1):
+- Only `bearer` is implemented.
+- `tokenName` is treated as the header name. If it is `"Authorization"`, the header value becomes `Bearer <token>`. Otherwise the token is sent as-is.
+
+### Registry Manifest
+
+A registry is also served from `.well-known/wacli.json` but sets `registry: true` and a `manifests` map:
+
+```json
+{
+  "registry": true,
+  "manifests": {
+    "forgejo": { "path": "https://wacli.ofs.lol/registry/forgejo.json" }
+  }
+}
+```
+
+When `tool_ref` is `registry:forgejo`, wacli:
+1. Loads the registry base URL from config `uri_schemes.registry`
+2. Fetches the registry manifest from its `.well-known/wacli.json`
+3. Fetches `manifests.forgejo.path` as the tool manifest
+
+## OpenAPI Support (v0.1)
+
+Accepted versions:
+- Swagger 2.0 (`"swagger": "2.x"`)
+- OpenAPI 3.0 (`"openapi": "3.0.x"`)
+- OpenAPI 3.1 (`"openapi": "3.1.x"`)
+
+Routing:
+- The selected operation is matched by `method` + path template segment match.
+- Template segments like `{id}` match any token and are extracted as path parameters.
+
+Base URL:
+- Swagger 2.0: `schemes[0]://host + basePath` (falls back to `tool_ref` base if missing)
+- OpenAPI 3.x: `servers[0].url` (falls back to `tool_ref` base if missing)
+
+## Local Config: `wacfg.json`
+
+Path:
+- `$XDG_CONFIG_HOME/wacli/wacfg.json` (default: `$HOME/.config/wacli/wacfg.json`)
+
+Example:
+
+```json
+{
+  "db_path": "$HOME/.cache/wacrd.db",
+  "install_dir": "$HOME/.local/bin",
+  "uri_schemes": {
+    "registry": "https://wacli.ofs.lol"
+  }
+}
+```
+
+## Lock File: `wa.lock`
+
+Path:
+- `$XDG_CONFIG_HOME/wacli/wa.lock`
+
+v0.1 writes `ains` entries when you run `wacli ain <tool_ref>`.
+
+## Examples
+
+See:
+- `examples/git.0ut0f.space/.well-known/wacli.json`
+- `examples/wacli.ofs.lol/.well-known/wacli.json`
+- `examples/settings.json`
+
+## Codex Skill
+
+This repo includes a Codex skill for using `wacli` against platform APIs (discovery, dry-run, auth, troubleshooting):
+- `skills/wacli-openapi-compat/SKILL.md`
+
+To install it into Codex:
 
 ```sh
-wacli help git.0ut0f.space
+mkdir -p ~/.codex/skills
+ln -s "$(pwd)/skills/wacli-openapi-compat" ~/.codex/skills/wacli-openapi-compat
 ```
 
-Settings format is on Linux by address `$HOME/.config/wacli/wacfg.json`
-
-```json
-{
-    "db_path": "<path_of_secrets_db>",
-    "install_dir": "<path_of_install_tools>",
-    "uri_schemes": {
-        "registry": "<default_registry_website>"
-    }
-}
-```
-
-Packages installed stored into lock file in json format, by path `$HOME/.config/wacli/wa.lock`
-
-```json
-{
-    "fileVersion": 1,
-    "bins": {
-        "<tool_name>": {
-            integrity: "<sha256>",
-            source: "<source_url_downloaded>",
-            installPath: "<install_tool_path>",
-            alias?: "<name_of_alias_if_exist>",
-            version: "<version_downloaded>"
-        }
-    },
-    "ains": {
-        "<tool_name>": {
-            integrity: "<sha256>",
-            source: "<source_url_api>",
-            installPath: "<install_tool_path_schema>",
-            alias?: "<name_of_alias_if_exist>",
-            version: "<version_downloaded>"
-        }
-    }
-}
-```
+Skill metadata name is `wacli-platform-api` (file stays in that folder).

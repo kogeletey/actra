@@ -1,2 +1,14 @@
 [tools]
 crystal = "latest"
+
+[tasks.deps]
+run = "shards install"
+
+[tasks.test]
+run = ["shards install", "crystal spec"]
+
+[tasks.build]
+run = ["shards install", "shards build --release"]
+
+[tasks.package]
+run = ["shards install", "shards build --release", "bash scripts/package.sh"]

@@ -1,0 +1,17 @@
+name: wacli
+version: 0.1.0
+
+authors:
+  - Konrad Geletey
+
+targets:
+  wacli:
+    main: src/wacli.cr
+
+dependencies:
+  sqlite3:
+    github: crystal-lang/crystal-sqlite3
+
+crystal: ">= 1.8.0"
+
+license: 0BSD
