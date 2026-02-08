@@ -18,9 +18,13 @@ module Wacli::OpenAPI
         base_path = "/#{base_path}" unless base_path.empty? || base_path.starts_with?("/")
 
         schemes = doc.raw["schemes"]?.try(&.as_a?)
-        scheme = schemes.try { |arr| arr[0]?.try(&.as_s?) }
-        scheme ||= tool.scheme || "https"
-        "#{scheme}://#{host}#{base_path}"
+        scheme_s = tool.scheme || "https"
+        if schemes
+          if s = schemes[0]?.try(&.as_s?)
+            scheme_s = s
+          end
+        end
+        "#{scheme_s}://#{host}#{base_path}"
       when Version::OpenAPI30, Version::OpenAPI31
         if servers = doc.raw["servers"]?.try(&.as_a?)
           if first = servers[0]?
