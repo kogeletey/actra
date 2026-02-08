@@ -23,8 +23,10 @@ module Wacli::OpenAPI
         "#{scheme}://#{host}#{base_path}"
       when Version::OpenAPI30, Version::OpenAPI31
         if servers = doc.raw["servers"]?.try(&.as_a?)
-          if url = servers.first?["url"]?.try(&.as_s?)
-            return url
+          if first = servers[0]?
+            if url = first["url"]?.try(&.as_s?)
+              return url
+            end
           end
         end
         tool.to_s
