@@ -3,7 +3,7 @@
 Turn a website's OpenAPI/Swagger JSON into a CLI.
 
 Status: v0.1 (Crystal). The core implemented pieces are:
-- `.well-known/wacli.json` manifest parsing and fetching (with deprecated fallback to `.well-know/wacli.json`)
+- `.well-known/wacli.json` manifest parsing and fetching
 - OpenAPI JSON detection (Swagger 2.0, OpenAPI 3.0, OpenAPI 3.1)
 - Operation routing by path tokens
 - `wacli oas validate` internal compatibility check
@@ -141,7 +141,7 @@ This file has the same schema as `.well-known/wacli.json` (tool manifest).
 You can also pass a manifest file path directly as `<tool_ref>`:
 
 ```sh
-wacli help ./mytool.json
+wacli help example.org 
 ```
 
 ### Tool Manifest
@@ -231,7 +231,7 @@ Example:
   "db_path": "$HOME/.cache/wacrd.db",
   "install_dir": "$HOME/.local/bin",
   "uri_schemes": {
-    "registry": "https://wacli.ofs.lol"
+    "registry": "https://wareg.re128.org"
   }
 }
 ```
@@ -246,14 +246,14 @@ v0.1 writes `ains` entries when you run `wacli ain <tool_ref>`.
 ## Examples
 
 See:
-- `examples/git.0ut0f.space/.well-known/wacli.json`
-- `examples/wacli.ofs.lol/.well-known/wacli.json`
+- `examples/re128.org/.well-known/wacli.json`
+- `examples/wareg.re128.org/.well-known/wacli.json`
 - `examples/settings.json`
 
-## Codex Skill
+## Skill
 
-This repo includes a Codex skill for using `wacli` against platform APIs (discovery, dry-run, auth, troubleshooting):
-- `skills/wacli-openapi-compat/SKILL.md`
+This repo includes a skill for using `wacli` against platform APIs (discovery, dry-run, auth, troubleshooting):
+- `skills/wacli/SKILL.md`
 
 To install it into Codex:
 
@@ -262,4 +262,4 @@ mkdir -p ~/.codex/skills
 ln -s "$(pwd)/skills/wacli-openapi-compat" ~/.codex/skills/wacli-openapi-compat
 ```
 
-Skill metadata name is `wacli-platform-api` (file stays in that folder).
+Skill metadata name is `wacli` (file stays in that folder).

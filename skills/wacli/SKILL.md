@@ -1,5 +1,5 @@
 ---
-name: wacli-platform-api
+name: wacli
 description: Use wacli to make API requests to any platform that exposes OpenAPI/Swagger JSON; includes discovery, auth, dry-run, and troubleshooting.
 ---
 

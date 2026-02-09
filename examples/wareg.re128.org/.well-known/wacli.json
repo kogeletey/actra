@@ -2,14 +2,14 @@
     "registry": true,
     "manifests": {
         "forgejo": {
-            "path": "https://wacli.ofs.lol/registry/forgejo.json"
+            "path": "https://wareg.re128.org/registry/forgejo.json"
         }
     },
     "settings": {
         "aliases": [{
             "type": "uri",
             "alias": "registry",
-            "content": "https://wacli.ofs.lol"
+            "content": "https://wareg.re128.org"
         }]
     }
 }
