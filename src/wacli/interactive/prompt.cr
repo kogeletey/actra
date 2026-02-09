@@ -115,6 +115,18 @@ module Wacli::Interactive
       end
       ask_string(stdin, stdout, prompt, true)
     end
+
+    def self.ask_json(stdin : IO, stdout : IO, prompt : String, required : Bool) : JSON::Any
+      loop do
+        s = ask_string(stdin, stdout, "#{prompt} (JSON)", required)
+        return JSON::Any.new(nil) if s.empty? && !required
+        begin
+          return JSON.parse(s)
+        rescue
+          next
+        end
+      end
+    end
   end
 
   module PickerFzf

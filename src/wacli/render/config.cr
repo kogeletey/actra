@@ -49,6 +49,7 @@ module Wacli::Render
     Enum
     DateTime
     File
+    Json
   end
 
   struct FieldRule
@@ -99,4 +100,3 @@ module Wacli::Render
     end
   end
 end
-

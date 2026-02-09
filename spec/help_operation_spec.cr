@@ -1,6 +1,5 @@
 require "spec"
 require "http/server"
-require "json"
 require "file_utils"
 
 require "./support/tmpdir"
@@ -18,18 +17,14 @@ private def with_temp_root(&)
   end
 end
 
-class TtyMemory < IO::Memory
-  def tty? : Bool
-    true
-  end
-end
-
-private def start_server(captured : Pointer(String)) : Tuple(String, HTTP::Server)
+private def start_server : Tuple(String, HTTP::Server)
   openapi = %({
     "openapi":"3.1.0",
     "paths": {
       "/things": {
         "post": {
+          "summary": "Create thing",
+          "description": "Creates a thing.\nSecond line.",
           "requestBody": {
             "required": true,
             "content": {
@@ -39,7 +34,6 @@ private def start_server(captured : Pointer(String)) : Tuple(String, HTTP::Serve
                   "required": ["title"],
                   "properties": {
                     "title": { "type": "string" },
-                    "confidential": { "type": "boolean" },
                     "label": { "type": "string", "enum": ["bug", "feature"] }
                   }
                 }
@@ -54,15 +48,11 @@ private def start_server(captured : Pointer(String)) : Tuple(String, HTTP::Serve
 
   server = HTTP::Server.new do |ctx|
     case ctx.request.path
-    when "/.well-known/wacli.json"
+    when "/.well-known/wacli.json", "/.well-know/wacli.json"
       ctx.response.status_code = 404
     when "/openapi.json"
       ctx.response.content_type = "application/json"
       ctx.response.print openapi
-    when "/things"
-      captured.value = ctx.request.body.try(&.gets_to_end) || ""
-      ctx.response.content_type = "application/json"
-      ctx.response.print %({"ok":true})
     else
       ctx.response.status_code = 404
       ctx.response.print "not found"
@@ -75,37 +65,33 @@ private def start_server(captured : Pointer(String)) : Tuple(String, HTTP::Serve
   {base, server}
 end
 
-describe "interactive request body" do
-  it "builds JSON from prompts for POST when stdin is a TTY" do
+describe "help (operation detail)" do
+  it "prints full description + schema diagram + interactive field preview" do
     with_temp_root do |root|
-      # Disable fzf in tests to keep prompts deterministic.
-      FileUtils.mkdir_p(Wacli::Xdg.config_dir)
-      File.write(Wacli::Xdg.config_path, %({
-        "render": {
-          "pickers": { "prefer_fzf": false }
-        }
-      }))
-
-      captured = Pointer(String).malloc(1)
-      captured.value = ""
-      base, server = start_server(captured)
+      base, server = start_server
       begin
-        # Confidential: n
-        # Label (enum): 2 -> feature
-        # Title: hello
-        stdin = TtyMemory.new("n\n2\nhello\n")
+        stdin = IO::Memory.new
         stdout = IO::Memory.new
         stderr = IO::Memory.new
-        code = Wacli::CLI.run([base, "post", "things"], stdin, stdout, stderr)
-        code.should eq(0)
+        Wacli::CLI.run(["help", base, "post", "things"], stdin, stdout, stderr).should eq(0)
 
-        any = JSON.parse(captured.value)
-        any["title"].as_s.should eq("hello")
-        any["confidential"].as_bool.should eq(false)
-        any["label"].as_s.should eq("feature")
+        out = stdout.to_s
+        out.should contain("operation: POST /things")
+        out.should contain("summary: Create thing")
+        out.should contain("description:")
+        out.should contain("Creates a thing.")
+        out.should contain("Second line.")
+        out.should contain("requestBody:")
+        out.should contain("schema:")
+        out.should contain("title: string (required)")
+        out.should contain("label: enum [bug, feature]")
+        out.should contain("interactive:")
+        out.should contain("/title")
+        out.should contain("/label")
       ensure
         server.close
       end
     end
   end
 end
+

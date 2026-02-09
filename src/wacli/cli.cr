@@ -14,11 +14,14 @@ require "./openapi/compat"
 require "./openapi/base_url"
 require "./openapi/router"
 require "./openapi/hints"
+require "./openapi/dto"
+require "./openapi/schema_printer"
 require "./plugins/oas_validate"
 require "./render/engine"
 require "./render/mode"
 require "./interactive/prompt"
 require "./interactive/json_builder"
+require "./interactive/form_builder"
 
 module Wacli
   class CLI
@@ -62,6 +65,19 @@ module Wacli
         return 1
       end
 
+      # Optional detailed help:
+      #   wacli help <tool_ref> [method] <path_tokens...>
+      op_method = nil.as(String?)
+      op_tokens = [] of String
+      if argv.size > 1
+        rest = argv[1..]
+        if rest[0]? && http_method_token?(rest[0])
+          op_method = rest[0].downcase
+          rest = rest[1..]
+        end
+        op_tokens = rest
+      end
+
       cfg = Config.load
       resolved = ToolResolver.resolve(tool_ref, cfg)
       doc = OpenAPI::Loader.load_any(resolved.api_url)
@@ -71,9 +87,65 @@ module Wacli
       stdout.puts "source: #{resolved.source}"
       stdout.puts "openapi: #{doc.version_string}"
       stdout.puts "base_url: #{base}"
-      stdout.puts "operations:"
-      OpenAPI::Router.list_operations(doc).each do |op|
-        stdout.puts "  - #{op}"
+
+      if op_tokens.any?
+        method = op_method || "get"
+        op = OpenAPI::Router.match(doc, method, resolved.manifest.expand_path_tokens(op_tokens))
+        builder = OpenAPI::Dto::Builder.new(doc)
+        dto = builder.operation(op.method, op.path_template)
+
+        stdout.puts
+        stdout.puts "operation: #{dto.method.upcase} #{dto.path_template}"
+        if dto.summary
+          stdout.puts "summary: #{dto.summary}"
+        end
+        if dto.description
+          stdout.puts "description:"
+          dto.description.not_nil!.lines.each { |l| stdout.puts "  #{l.rstrip}" }
+        end
+
+        if dto.parameters.any?
+          stdout.puts "parameters:"
+          dto.parameters.each do |p|
+            ty = p.schema.try(&.type) || "unknown"
+            req = p.required ? "required" : "optional"
+            desc = p.description ? " - #{p.description}" : ""
+            stdout.puts "  - #{p.location} #{p.name}: #{ty} (#{req})#{desc}"
+          end
+        end
+
+        if rb = dto.request_body_json
+          stdout.puts "requestBody:"
+          stdout.puts "  content-type: #{rb.content_type}"
+          stdout.puts "  schema:"
+          OpenAPI::SchemaPrinter.print(rb.schema, stdout, 4)
+          stdout.puts "  interactive:"
+          fields = Interactive::FormBuilder.fields_for_schema(rb.schema)
+          if fields.empty?
+            stdout.puts "    (none)"
+          else
+            fields.each do |f|
+              k = f.kind.to_s.downcase
+              extra =
+                if f.kind == Render::FieldKind::Enum
+                  " values=#{f.enum_values.join(",")}"
+                else
+                  ""
+                end
+              stdout.puts "    - #{f.pointer} kind=#{k} required=#{f.required} prompt=#{f.prompt}#{extra}"
+            end
+          end
+        end
+      else
+        stdout.puts "operations:"
+        builder = OpenAPI::Dto::Builder.new(doc)
+        builder.list_operations.each do |i|
+          if i.summary
+            stdout.puts "  - #{i.method.upcase} #{i.path_template} - #{i.summary}"
+          else
+            stdout.puts "  - #{i.method.upcase} #{i.path_template}"
+          end
+        end
       end
 
       if resolved.manifest.path_aliases.any?
@@ -411,7 +483,18 @@ module Wacli
         if rule
           rule.fields
         else
-          OpenAPI::Hints.fields_for(doc, op_method, op_path_template)
+          begin
+            builder = OpenAPI::Dto::Builder.new(doc)
+            dto = builder.operation(op_method, op_path_template)
+            rb = dto.request_body_json
+            if rb
+              Interactive::FormBuilder.fields_for_schema(rb.schema)
+            else
+              OpenAPI::Hints.fields_for(doc, op_method, op_path_template)
+            end
+          rescue
+            OpenAPI::Hints.fields_for(doc, op_method, op_path_template)
+          end
         end
 
       raise "no interactive schema for #{op_key}; provide --json or configure wacfg.json render.operations" if fields.empty?
@@ -430,6 +513,8 @@ module Wacli
             JSON::Any.new(Interactive::Prompt.ask_datetime(stdin, stdout, f.prompt, cfg.render))
           when Render::FieldKind::File
             JSON::Any.new(Interactive::Prompt.ask_file_path(stdin, stdout, f.prompt, cfg.render))
+          when Render::FieldKind::Json
+            Interactive::Prompt.ask_json(stdin, stdout, f.prompt, f.required)
           else
             raise "unsupported interactive field kind: #{f.kind}"
           end
@@ -538,7 +623,7 @@ module Wacli
       Commands:
         wacli shell <bash|zsh> [--installed] <tool_ref...>
         wacli oas validate <file_or_url>
-        wacli help <tool_ref>
+        wacli help <tool_ref> [method] <path_tokens...>
         wacli ain <tool_ref>
         wacli auth <tool_ref> --bearer TOKEN
         wacli render [--render MODE] [--in FILE]

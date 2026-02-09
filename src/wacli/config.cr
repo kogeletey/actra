@@ -101,6 +101,7 @@ module Wacli
                 when "enum"     then Render::FieldKind::Enum
                 when "datetime" then Render::FieldKind::DateTime
                 when "file"     then Render::FieldKind::File
+                when "json"     then Render::FieldKind::Json
                 else                 Render::FieldKind::String
                 end
 
