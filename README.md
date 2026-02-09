@@ -74,7 +74,7 @@ The token is applied in both modes:
 ### Execute a request (v0.1)
 
 ```sh
-wacli <tool_ref> [method] <path_tokens...> [key=value...] [--json STR] [--header k:v] [--dry-run]
+wacli <tool_ref> [method] <path_tokens...> [key=value...] [--json STR] [--header k:v] [--render MODE] [--out PATH] [--interactive|--no-interactive] [--dry-run]
 ```
 
 Notes:
@@ -82,7 +82,18 @@ Notes:
 - `path_tokens` are matched against an OpenAPI path template. Example template `/repos/{owner}/{repo}/issues` matches tokens `repos alice demo issues`.
 - `key=value` args become query parameters.
 - `--json` sets the request body and defaults `Content-Type` to `application/json` if not already specified in headers.
+- `--json @file.json` reads request JSON from a file.
+- `--render auto|table|json|raw` formats JSON output (default: `auto`).
+- `--out PATH` saves the response to a file (use `--out -` to force raw bytes to stdout).
+- For `POST/PUT/PATCH` without `--json`, `wacli` prompts interactively when stdin is a TTY (disable with `--no-interactive`).
 - `--dry-run` prints the resolved request instead of sending it.
+
+## Render JSON (like a minimal formatter)
+
+```sh
+cat response.json | wacli render --render table
+wacli render --in response.json --render json
+```
 
 ## Shell Mode (bash/zsh)
 

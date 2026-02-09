@@ -18,9 +18,10 @@ end
 
 describe "shell mode" do
   it "prints aliases for explicit tool refs" do
+    stdin_io = IO::Memory.new
     stdout_io = IO::Memory.new
     stderr_io = IO::Memory.new
-    Wacli::CLI.run(["shell", "bash", "example.org"], stdout_io, stderr_io).should eq(0)
+    Wacli::CLI.run(["shell", "bash", "example.org"], stdin_io, stdout_io, stderr_io).should eq(0)
     stdout_io.to_s.should contain("alias example.org='wacli example.org'")
   end
 
@@ -33,9 +34,10 @@ describe "shell mode" do
         "ains": { "example.org": { "installPath": "/tmp/x", "source": "https://example.org/openapi.json", "integrity": "x", "openapiVersion": "3.0" } }
       }))
 
+      stdin_io = IO::Memory.new
       stdout_io = IO::Memory.new
       stderr_io = IO::Memory.new
-      Wacli::CLI.run(["shell", "bash", "--installed"], stdout_io, stderr_io).should eq(0)
+      Wacli::CLI.run(["shell", "bash", "--installed"], stdin_io, stdout_io, stderr_io).should eq(0)
       stdout_io.to_s.should contain("alias example.org='wacli example.org'")
     end
   end

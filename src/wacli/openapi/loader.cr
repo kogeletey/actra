@@ -3,6 +3,7 @@ require "json"
 require "uri"
 
 require "./document"
+require "./detector"
 
 module Wacli::OpenAPI
   class UnsupportedVersionError < Exception
@@ -44,19 +45,7 @@ module Wacli::OpenAPI
 
     def self.load_json(json_text : String) : Document
       any = JSON.parse(json_text)
-      detect(any)
-    end
-
-    def self.detect(any : JSON::Any) : Document
-      if (v = any["swagger"]?.try(&.as_s?)) && v.starts_with?("2.")
-        return Document.new(Version::Swagger2, any)
-      end
-
-      if (v = any["openapi"]?.try(&.as_s?)) && v.starts_with?("3.")
-        return Document.new(v.starts_with?("3.1") ? Version::OpenAPI31 : Version::OpenAPI30, any)
-      end
-
-      raise UnsupportedVersionError.new("unsupported OpenAPI version (expected 'swagger': '2.x' or 'openapi': '3.x')")
+      Detector.detect(any)
     end
   end
 end

@@ -46,7 +46,7 @@ describe "ain precedence" do
         }
       }))
 
-      cfg = Wacli::Config.new("/tmp/wa.db", "/tmp", {"registry" => "https://wacli.ofs.lol"})
+      cfg = Wacli::Config.new("/tmp/wa.db", "/tmp", {"registry" => "https://wacli.ofs.lol"}, Wacli::Render::Config.default)
       resolved = Wacli::ToolResolver.resolve(tool_ref, cfg)
       resolved.source.should eq("ain")
       resolved.api_url.should eq(cached)

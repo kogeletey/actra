@@ -13,10 +13,16 @@ require "./openapi/loader"
 require "./openapi/compat"
 require "./openapi/base_url"
 require "./openapi/router"
+require "./openapi/hints"
+require "./plugins/oas_validate"
+require "./render/engine"
+require "./render/mode"
+require "./interactive/prompt"
+require "./interactive/json_builder"
 
 module Wacli
   class CLI
-    def self.run(argv : Array(String), stdout : IO = STDOUT, stderr : IO = STDERR) : Int32
+    def self.run(argv : Array(String), stdin : IO = STDIN, stdout : IO = STDOUT, stderr : IO = STDERR) : Int32
       return usage(stdout) if argv.empty?
 
       case argv[0]
@@ -30,8 +36,10 @@ module Wacli
         return run_ain(argv[1..], stdout, stderr)
       when "auth"
         return run_auth(argv[1..], stdout, stderr)
+      when "render"
+        return run_render(argv[1..], stdin, stdout, stderr)
       else
-        return run_request(argv, stdout, stderr)
+        return run_request(argv, stdin, stdout, stderr)
       end
     end
 
@@ -40,7 +48,7 @@ module Wacli
 
       case argv[0]?
       when "validate"
-        return oas_validate(argv[1..], stdout, stderr)
+        return Plugins::OasValidate.run(argv[1..], stdout, stderr)
       else
         stderr.puts "unknown subcommand: oas #{argv[0]}"
         return 1
@@ -152,13 +160,44 @@ module Wacli
       1
     end
 
-    private def self.run_request(argv : Array(String), stdout : IO, stderr : IO) : Int32
+    private def self.run_render(argv : Array(String), stdin : IO, stdout : IO, stderr : IO) : Int32
+      in_file = nil.as(String?)
+      mode_s = nil.as(String?)
+
+      parser = OptionParser.new do |p|
+        p.on("--in FILE", "Input file (default: stdin)") { |v| in_file = v }
+        p.on("--render MODE", "Render mode: auto|table|json|raw") { |v| mode_s = v }
+      end
+      parser.parse(argv)
+
+      cfg = Config.load
+      mode = Render::Mode.parse(mode_s) || cfg.render.default_mode
+
+      bytes =
+        if in_file
+          File.read(in_file.not_nil!).to_slice
+        else
+          io = IO::Memory.new
+          IO.copy(stdin, io)
+          io.to_slice
+        end
+
+      Render::Engine.render(bytes, mode, stdout, cfg.render)
+      0
+    rescue ex
+      stderr.puts ex.message
+      1
+    end
+
+    private def self.run_request(argv : Array(String), stdin : IO, stdout : IO, stderr : IO) : Int32
       tool_ref = argv[0]
       rest = argv[1..]
       if rest.empty?
         stderr.puts "missing operation tokens"
         return 1
       end
+
+      cfg = Config.load
 
       method = "get"
       if http_method_token?(rest[0])
@@ -177,6 +216,10 @@ module Wacli
       opts = rest[idx..]
 
       json_body = nil.as(String?)
+      out_path = nil.as(String?)
+      render_mode_s = nil.as(String?)
+      interactive_force = false
+      interactive_disable = false
       dry_run = false
       extra_headers = [] of Tuple(String, String)
       query_kv = [] of Tuple(String, String)
@@ -191,6 +234,18 @@ module Wacli
         elsif a == "--json"
           json_body = opts[i + 1]? || raise "missing value for --json"
           i += 2
+        elsif a == "--out"
+          out_path = opts[i + 1]? || raise "missing value for --out"
+          i += 2
+        elsif a == "--render"
+          render_mode_s = opts[i + 1]? || raise "missing value for --render"
+          i += 2
+        elsif a == "--interactive"
+          interactive_force = true
+          i += 1
+        elsif a == "--no-interactive"
+          interactive_disable = true
+          i += 1
         elsif a == "--header"
           hv = opts[i + 1]? || raise "missing value for --header"
           parts = hv.split(":", 2)
@@ -206,7 +261,6 @@ module Wacli
         end
       end
 
-      cfg = Config.load
       resolved = ToolResolver.resolve(tool_ref, cfg)
       doc = OpenAPI::Loader.load_any(resolved.api_url)
       report = OpenAPI::Compat.validate(doc)
@@ -226,7 +280,17 @@ module Wacli
         path_param_values: op.path_param_values,
         query: query_kv,
         headers: resolved.manifest.headers + extra_headers,
-        json_body: json_body,
+        json_body: resolve_json_body(
+          json_body: json_body,
+          stdin: stdin,
+          stdout: stdout,
+          op_method: op.method,
+          op_path_template: op.path_template,
+          doc: doc,
+          cfg: cfg,
+          interactive_force: interactive_force,
+          interactive_disable: interactive_disable
+        ),
         bearer_token: token,
         bearer_header: resolved.manifest.bearer_header_name
       )
@@ -237,11 +301,156 @@ module Wacli
       end
 
       resp = req.execute
-      stdout.puts resp.body
-      (resp.status_code >= 200 && resp.status_code < 300) ? 0 : 1
+      return handle_response(resp, out_path, render_mode_s, stdin, stdout, stderr, cfg)
     rescue ex
       stderr.puts ex.message
       1
+    end
+
+    private def self.handle_response(resp : Response, out_path : String?, render_mode_s : String?, stdin : IO, stdout : IO, stderr : IO, cfg : Config) : Int32
+      ok = resp.status_code >= 200 && resp.status_code < 300
+
+      if out_path
+        if out_path == "-"
+          stdout.write(resp.body_bytes)
+          return ok ? 0 : 1
+        end
+
+        File.open(out_path, "wb") { |f| f.write(resp.body_bytes) }
+        stderr.puts "http: #{resp.status_code}"
+        stderr.puts "saved: #{out_path}"
+        return ok ? 0 : 1
+      end
+
+      mode = Render::Mode.parse(render_mode_s) || cfg.render.default_mode
+      # If the user explicitly asked for raw rendering, don't second-guess them.
+      if mode != Render::Mode::Raw && should_save_as_file?(resp, mode)
+        if stdin.tty?
+          default_name = resp.attachment_filename || "download.bin"
+          path = prompt_out_path(stdin, stdout, "Save as", default_name)
+          File.open(path, "wb") { |f| f.write(resp.body_bytes) }
+          stderr.puts "http: #{resp.status_code}"
+          stderr.puts "saved: #{path}"
+          return ok ? 0 : 1
+        else
+          raise "response looks like a file; re-run with --out PATH"
+        end
+      end
+
+      Render::Engine.render(resp.body_bytes, mode, stdout, cfg.render)
+      ok ? 0 : 1
+    end
+
+    private def self.prompt_out_path(stdin : IO, stdout : IO, label : String, default_name : String) : String
+      loop do
+        stdout.print "#{label} [#{default_name}]: "
+        stdout.flush
+        s = stdin.gets
+        raise "EOF while reading output path" unless s
+        v = s.strip
+        v = default_name if v.empty?
+        return v unless v.empty?
+      end
+    end
+
+    private def self.should_save_as_file?(resp : Response, mode : Render::Mode) : Bool
+      return true if resp.attachment?
+      ct = resp.content_type
+      if ct
+        ct_l = ct.downcase
+        return false if ct_l.includes?("json") || ct_l.ends_with?("+json")
+        return false if ct_l.starts_with?("text/")
+        return true if ct_l.starts_with?("application/octet-stream")
+        # For other application/* types: treat as downloadable if it's not obviously text-like.
+        return ct_l.starts_with?("application/")
+      end
+
+      # No content-type: if it parses as JSON, render it; else if it has NUL bytes, treat as binary.
+      begin
+        JSON.parse(String.new(resp.body_bytes))
+        return false
+      rescue
+      end
+      resp.body_bytes.any? { |b| b == 0_u8 }
+    end
+
+    private def self.resolve_json_body(
+      json_body : String?,
+      stdin : IO,
+      stdout : IO,
+      op_method : String,
+      op_path_template : String,
+      doc : OpenAPI::Document,
+      cfg : Config,
+      interactive_force : Bool,
+      interactive_disable : Bool
+    ) : String?
+      # 1) Explicit --json
+      if json_body
+        return read_json_arg(json_body, stdin, stdout, cfg)
+      end
+
+      # 2) Non-TTY: allow piping JSON for write methods.
+      if !stdin.tty? && {"post", "put", "patch"}.includes?(op_method.downcase)
+        io = IO::Memory.new
+        IO.copy(stdin, io)
+        txt = String.new(io.to_slice).strip
+        return txt unless txt.empty?
+      end
+
+      # 3) Interactive prompt on TTY for write methods (or if forced).
+      wants_prompt = interactive_force || {"post", "put", "patch"}.includes?(op_method.downcase)
+      return nil unless wants_prompt
+      return nil if interactive_disable
+      return nil unless stdin.tty?
+      return nil unless cfg.render.interactive.enabled
+
+      op_key = "#{op_method.upcase} #{op_path_template}"
+      rule = cfg.render.operations[op_key]?
+      fields =
+        if rule
+          rule.fields
+        else
+          OpenAPI::Hints.fields_for(doc, op_method, op_path_template)
+        end
+
+      raise "no interactive schema for #{op_key}; provide --json or configure wacfg.json render.operations" if fields.empty?
+
+      b = Interactive::JsonBuilder.new
+      fields.each do |f|
+        value_any : JSON::Any =
+          case f.kind
+          when Render::FieldKind::String
+            JSON::Any.new(Interactive::Prompt.ask_string(stdin, stdout, f.prompt, f.required))
+          when Render::FieldKind::Boolean
+            JSON::Any.new(Interactive::Prompt.ask_bool(stdin, stdout, f.prompt, f.default_bool))
+          when Render::FieldKind::Enum
+            JSON::Any.new(Interactive::Prompt.ask_enum(stdin, stdout, f.prompt, f.enum_values, cfg.render))
+          when Render::FieldKind::DateTime
+            JSON::Any.new(Interactive::Prompt.ask_datetime(stdin, stdout, f.prompt, cfg.render))
+          when Render::FieldKind::File
+            JSON::Any.new(Interactive::Prompt.ask_file_path(stdin, stdout, f.prompt, cfg.render))
+          else
+            raise "unsupported interactive field kind: #{f.kind}"
+          end
+        b.set_pointer(f.pointer, value_any)
+      end
+
+      b.to_json
+    end
+
+    private def self.read_json_arg(arg : String, stdin : IO, stdout : IO, cfg : Config) : String
+      if arg.starts_with?("@")
+        rest = arg[1..]
+        if rest.empty?
+          # "@": pick a file on TTY if possible.
+          raise "stdin is not a TTY; use --json @path/to/file.json" unless stdin.tty?
+          path = Interactive::Prompt.ask_file_path(stdin, stdout, "JSON file", cfg.render)
+          return File.read(path)
+        end
+        return File.read(rest)
+      end
+      arg
     end
 
     private def self.run_shell(argv : Array(String), stdout : IO, stderr : IO) : Int32
@@ -332,7 +541,16 @@ module Wacli
         wacli help <tool_ref>
         wacli ain <tool_ref>
         wacli auth <tool_ref> --bearer TOKEN
-        wacli <tool_ref> [method] <path_tokens...> [key=value...] [--json STR] [--header k:v] [--dry-run]
+        wacli render [--render MODE] [--in FILE]
+        wacli <tool_ref> [method] <path_tokens...> [key=value...] [--json STR] [--header k:v] [--render MODE] [--out PATH] [--interactive|--no-interactive] [--dry-run]
+
+      Render MODE:
+        auto|table|json|raw
+
+      JSON bodies:
+        --json STR             Inline JSON string
+        --json @file.json      Read JSON from file
+        --json @               Pick a JSON file (uses fzf if available, otherwise prompts for a path)
       TXT
       1
     end

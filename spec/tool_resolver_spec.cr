@@ -31,7 +31,7 @@ describe Wacli::ToolResolver do
     openapi = File.read("spec/fixtures/oas3_min.json")
     base, server = start_server(openapi)
     begin
-      cfg = Wacli::Config.new("/tmp/wa.db", "/tmp", {"registry" => base})
+      cfg = Wacli::Config.new("/tmp/wa.db", "/tmp", {"registry" => base}, Wacli::Render::Config.default)
       resolved = Wacli::ToolResolver.resolve(base, cfg)
       resolved.source.should eq("fallback")
       resolved.api_url.should eq("#{base}/openapi.json")

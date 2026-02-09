@@ -49,13 +49,15 @@ describe "auth header injection" do
 
       base, server = start_fallback_server(openapi)
       begin
+        stdin_io = IO::Memory.new
         stdout_io = IO::Memory.new
         stderr_io = IO::Memory.new
-        Wacli::CLI.run(["auth", base, "--bearer", "ABC"], stdout_io, stderr_io).should eq(0)
+        Wacli::CLI.run(["auth", base, "--bearer", "ABC"], stdin_io, stdout_io, stderr_io).should eq(0)
 
+        stdin_io2 = IO::Memory.new
         stdout_io2 = IO::Memory.new
         stderr_io2 = IO::Memory.new
-        Wacli::CLI.run([base, "get", "ping", "--dry-run"], stdout_io2, stderr_io2).should eq(0)
+        Wacli::CLI.run([base, "get", "ping", "--dry-run"], stdin_io2, stdout_io2, stderr_io2).should eq(0)
         stdout_io2.to_s.should contain("Authorization: Bearer ABC")
       ensure
         server.close

@@ -10,8 +10,41 @@ require "./xdg"
 module Wacli
   struct Response
     getter status_code : Int32
-    getter body : String
-    def initialize(@status_code : Int32, @body : String); end
+    getter headers : HTTP::Headers
+    getter body_bytes : Bytes
+
+    def initialize(@status_code : Int32, @headers : HTTP::Headers, @body_bytes : Bytes)
+    end
+
+    def header?(name : String) : String?
+      headers[name]?
+    end
+
+    def content_type : String?
+      header?("Content-Type").try { |v| v.split(";", 2)[0].strip }
+    end
+
+    def attachment_filename : String?
+      cd = header?("Content-Disposition")
+      return nil unless cd
+      # Very small parser: looks for filename="<x>" or filename=x
+      if m = cd.match(/filename\*=UTF-8''([^;]+)/)
+        return URI.decode(m[1])
+      end
+      if m = cd.match(/filename=\"([^\"]+)\"/)
+        return m[1]
+      end
+      if m = cd.match(/filename=([^;]+)/)
+        return m[1].strip
+      end
+      nil
+    end
+
+    def attachment? : Bool
+      cd = header?("Content-Disposition")
+      return false unless cd
+      cd.downcase.includes?("attachment")
+    end
   end
 
   struct Request
@@ -72,7 +105,9 @@ module Wacli
     def execute : Response
       uri = URI.parse(url)
       HTTP::Client.exec(method.upcase, uri, headers: to_http_headers, body: body) do |resp|
-        Response.new(resp.status_code, resp.body_io.gets_to_end)
+        buf = IO::Memory.new
+        IO.copy(resp.body_io, buf)
+        Response.new(resp.status_code, resp.headers, buf.to_slice)
       end
     end
 
