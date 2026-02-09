@@ -17,9 +17,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v3
         with:
           version: latest
+          install: false
       - run: mise install
       - run: mise run package
       - uses: actions/upload-artifact@v4
@@ -39,4 +40,3 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-
