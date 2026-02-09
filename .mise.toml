@@ -5,10 +5,10 @@ crystal = "latest"
 run = "shards install"
 
 [tasks.test]
-run = ["shards install", "crystal spec"]
+run = ["shards install", "mkdir -p .crystal/cache", "CRYSTAL_CACHE_DIR=.crystal/cache crystal spec"]
 
 [tasks.build]
-run = ["shards install", "shards build --release"]
+run = ["shards install", "mkdir -p .crystal/cache", "CRYSTAL_CACHE_DIR=.crystal/cache shards build --release"]
 
 [tasks.package]
-run = ["shards install", "shards build --release", "bash scripts/package.sh"]
+run = ["shards install", "mkdir -p .crystal/cache", "CRYSTAL_CACHE_DIR=.crystal/cache shards build --release", "bash scripts/package.sh"]

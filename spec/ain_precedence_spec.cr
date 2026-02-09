@@ -2,13 +2,14 @@ require "spec"
 require "json"
 require "file_utils"
 
+require "./support/tmpdir"
 require "../src/wacli/tool_resolver"
 require "../src/wacli/tool_key"
 require "../src/wacli/xdg"
 require "../src/wacli/config"
 
 private def with_temp_root(&)
-  Dir.mktmpdir("wacli_test") do |root|
+  SpecTmpdir.with do |root|
     ENV["WACLI_TEST_ROOT"] = root
     begin
       yield root

@@ -1,10 +1,11 @@
 require "spec"
 require "http/server"
 
+require "./support/tmpdir"
 require "../src/wacli/cli"
 
 private def with_temp_root(&)
-  Dir.mktmpdir("wacli_test") do |root|
+  SpecTmpdir.with do |root|
     ENV["WACLI_TEST_ROOT"] = root
     begin
       yield root
@@ -48,18 +49,17 @@ describe "auth header injection" do
 
       base, server = start_fallback_server(openapi)
       begin
-        out = IO::Memory.new
-        err = IO::Memory.new
-        Wacli::CLI.run(["auth", base, "--bearer", "ABC"], out, err).should eq(0)
+        stdout_io = IO::Memory.new
+        stderr_io = IO::Memory.new
+        Wacli::CLI.run(["auth", base, "--bearer", "ABC"], stdout_io, stderr_io).should eq(0)
 
-        out2 = IO::Memory.new
-        err2 = IO::Memory.new
-        Wacli::CLI.run([base, "get", "ping", "--dry-run"], out2, err2).should eq(0)
-        out2.to_s.should contain("Authorization: Bearer ABC")
+        stdout_io2 = IO::Memory.new
+        stderr_io2 = IO::Memory.new
+        Wacli::CLI.run([base, "get", "ping", "--dry-run"], stdout_io2, stderr_io2).should eq(0)
+        stdout_io2.to_s.should contain("Authorization: Bearer ABC")
       ensure
         server.close
       end
     end
   end
 end
-

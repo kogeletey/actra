@@ -34,6 +34,8 @@ module Wacli::OpenAPI
           end
         end
         tool.to_s
+      else
+        tool.to_s
       end
     end
 

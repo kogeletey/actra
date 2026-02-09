@@ -19,6 +19,7 @@ module Wacli::OpenAPI
       when Version::Swagger2 then "2.0"
       when Version::OpenAPI30 then "3.0"
       when Version::OpenAPI31 then "3.1"
+      else "unknown"
       end
     end
 
@@ -27,4 +28,3 @@ module Wacli::OpenAPI
     end
   end
 end
-
