@@ -1,0 +1,53 @@
+name: wasm
+
+on:
+  pull_request:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v3
+        with:
+          version: latest
+          install: false
+
+      - name: Install tools (mise)
+        run: mise install
+
+      - name: Install wasm-opt (binaryen)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binaryen lld
+
+      # Crystal's wasm32-wasi support expects a WASI sysroot (headers + libc).
+      # We install wasi-sdk and export WASI_SDK_PATH for the build script.
+      - name: Install wasi-sdk
+        run: |
+          set -euo pipefail
+          ver="24.0"
+          dir="${RUNNER_TEMP}/wasi-sdk"
+          curl -fsSL -o "${RUNNER_TEMP}/wasi-sdk.tar.gz" \
+            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${ver}/wasi-sdk-${ver}.0-x86_64-linux.tar.gz"
+          mkdir -p "${RUNNER_TEMP}/wasi"
+          tar -xzf "${RUNNER_TEMP}/wasi-sdk.tar.gz" -C "${RUNNER_TEMP}/wasi"
+          mv "${RUNNER_TEMP}/wasi/wasi-sdk-${ver}.0" "$dir"
+          echo "WASI_SDK_PATH=$dir" >> "$GITHUB_ENV"
+          echo "${dir}/bin" >> "$GITHUB_PATH"
+
+      - name: Build + optimize wasm
+        env:
+          WASI_SDK_PATH: ${{ env.WASI_SDK_PATH }}
+        run: |
+          ./scripts/build-wasm.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm
+          path: dist/wasm/*
