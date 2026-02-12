@@ -1,0 +1,80 @@
+name: homebrew-formula
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (example: v1.2.3)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish-formula:
+    runs-on: ubuntu-latest
+    env:
+      REPO: ${{ github.repository }}
+      TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${TAG:-}" ]]; then
+            echo "missing release tag" >&2
+            exit 1
+          fi
+          mkdir -p dist
+          for attempt in $(seq 1 12); do
+            rm -f dist/SHA256SUMS
+            if gh release download "$TAG" -R "$REPO" -p "SHA256SUMS" -D dist; then
+              break
+            fi
+            if [[ "$attempt" -eq 12 ]]; then
+              echo "failed to download SHA256SUMS from release $TAG after retries" >&2
+              exit 1
+            fi
+            echo "SHA256SUMS not available yet (attempt $attempt/12); retrying in 10s..."
+            sleep 10
+          done
+
+      - name: Generate Homebrew formula
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          HOMEPAGE="https://github.com/${REPO}"
+
+          BREW_ASSET=""
+          BREW_SHA=""
+          BREW_URL=""
+
+          while IFS='=' read -r key value; do
+            case "$key" in
+              BREW_ASSET|BREW_SHA|BREW_URL)
+                printf -v "$key" '%s' "$value"
+                ;;
+            esac
+          done < <(bash .meta/packaging/scripts/resolve-homebrew-asset.sh "$VERSION" "$REPO" "$TAG" "dist/SHA256SUMS")
+
+          if [[ -z "$BREW_ASSET" || -z "$BREW_SHA" || -z "$BREW_URL" ]]; then
+            echo "failed to resolve Homebrew archive metadata" >&2
+            exit 1
+          fi
+
+          echo "Using Homebrew archive: $BREW_ASSET"
+          bash .meta/packaging/scripts/generate-homebrew-formula.sh "$VERSION" "$BREW_URL" "$BREW_SHA" "$HOMEPAGE"
+          cp .meta/packaging/homebrew/wacli.rb dist/homebrew-wacli.rb
+
+      - name: Upload formula asset to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          files: dist/homebrew-wacli.rb

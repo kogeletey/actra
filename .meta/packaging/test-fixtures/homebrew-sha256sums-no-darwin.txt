@@ -1,0 +1,1 @@
+ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff  dist/wacli-1.2.3-linux-amd64-dynamic.tar.gz

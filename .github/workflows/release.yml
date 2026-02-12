@@ -95,19 +95,6 @@ jobs:
       - name: Generate checksums
         run: bash .meta/packaging/scripts/generate-checksums.sh
 
-      - name: Generate Homebrew formula
-        env:
-          REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          VERSION="${TAG#v}"
-          BREW_ASSET="wacli-${VERSION}-darwin-arm64-dynamic.tar.gz"
-          BREW_SHA="$(grep " ${BREW_ASSET}$" dist/SHA256SUMS | awk '{print $1}')"
-          BREW_URL="https://github.com/${REPO}/releases/download/${TAG}/${BREW_ASSET}"
-          bash .meta/packaging/scripts/generate-homebrew-formula.sh "$VERSION" "$BREW_URL" "$BREW_SHA"
-          cp .meta/packaging/homebrew/wacli.rb dist/homebrew-wacli.rb
-
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*

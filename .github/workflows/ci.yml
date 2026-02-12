@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - run: bash .meta/packaging/scripts/test-homebrew-packaging.sh
       - uses: crystal-lang/install-crystal@v1
         with:
           crystal: latest
