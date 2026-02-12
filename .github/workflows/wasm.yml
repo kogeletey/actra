@@ -13,21 +13,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: jdx/mise-action@v3
+      - uses: crystal-lang/install-crystal@v1
         with:
-          version: latest
-          install: false
+          crystal: latest
 
-      - name: Install tools (mise)
-        run: mise install
+      - name: Install Crystal deps
+        run: shards install
 
       - name: Install wasm-opt (binaryen)
         run: |
           sudo apt-get update
           sudo apt-get install -y binaryen lld
 
-      # Crystal's wasm32-wasi support expects a WASI sysroot (headers + libc).
-      # We install wasi-sdk and export WASI_SDK_PATH for the build script.
       - name: Install wasi-sdk
         run: |
           set -euo pipefail
@@ -44,8 +41,7 @@ jobs:
       - name: Build + optimize wasm
         env:
           WASI_SDK_PATH: ${{ env.WASI_SDK_PATH }}
-        run: |
-          ./scripts/build-wasm.sh
+        run: ./scripts/build-wasm.sh
 
       - uses: actions/upload-artifact@v4
         with:

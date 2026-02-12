@@ -11,17 +11,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  MISE_EXPERIMENTAL: true
-
 jobs:
   ci:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v3
+      - uses: crystal-lang/install-crystal@v1
         with:
-          version: latest
-      - run: mise run test
-      - run: mise run build
+          crystal: latest
+      - run: shards install
+      - run: crystal spec
+      - run: shards build --release

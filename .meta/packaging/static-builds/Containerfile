@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1.7
+
+FROM crystallang/crystal:1.12.2-alpine AS builder
+
+RUN apk add --no-cache \
+  bash \
+  build-base \
+  sqlite-dev \
+  sqlite-static \
+  shards
+
+WORKDIR /src
+COPY shard.yml shard.lock ./
+RUN shards install
+
+COPY . .
+RUN CRYSTAL_CACHE_DIR=/tmp/.crystal-cache \
+  crystal build src/wacli.cr --release --static -o /out/wacli
+
+FROM scratch
+COPY --from=builder /out/wacli /usr/local/bin/wacli
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+ENTRYPOINT ["/usr/local/bin/wacli"]

@@ -7,36 +7,135 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+        include:
+          - id: linux-amd64-dynamic
+            runner: ubuntu-24.04
+            target_os: linux
+            target_arch: amd64
+            link_mode: dynamic
+          - id: linux-amd64-static
+            runner: ubuntu-24.04
+            target_os: linux
+            target_arch: amd64
+            link_mode: static
+          - id: linux-arm64-dynamic
+            runner: ubuntu-24.04-arm
+            target_os: linux
+            target_arch: arm64
+            link_mode: dynamic
+          - id: linux-arm64-static
+            runner: ubuntu-24.04-arm
+            target_os: linux
+            target_arch: arm64
+            link_mode: static
+          - id: macos-arm64-dynamic
+            runner: macos-14
+            target_os: darwin
+            target_arch: arm64
+            link_mode: dynamic
+
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v3
+
+      - uses: crystal-lang/install-crystal@v1
         with:
-          version: latest
-          install: false
-      - run: mise install
-      - run: mise run package
+          crystal: latest
+
+      - name: Install linux static build deps
+        if: matrix.target_os == 'linux' && matrix.link_mode == 'static'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools libsqlite3-dev
+
+      - name: Build binary
+        env:
+          TARGET_OS: ${{ matrix.target_os }}
+          TARGET_ARCH: ${{ matrix.target_arch }}
+          LINK_MODE: ${{ matrix.link_mode }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${VERSION#v}" \
+          bash .meta/packaging/scripts/build-release.sh
+
+      - name: Package tarball
+        env:
+          TARGET_OS: ${{ matrix.target_os }}
+          TARGET_ARCH: ${{ matrix.target_arch }}
+          LINK_MODE: ${{ matrix.link_mode }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${VERSION#v}" \
+          bash .meta/packaging/scripts/package-tarball.sh
+
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.os }}
-          path: dist/*
+          name: dist-${{ matrix.id }}
+          path: dist/*.tar.gz
 
   publish:
     runs-on: ubuntu-latest
     needs: build
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           pattern: dist-*
           merge-multiple: true
           path: dist
+
+      - name: Generate checksums
+        run: bash .meta/packaging/scripts/generate-checksums.sh
+
+      - name: Generate Homebrew formula
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          BREW_ASSET="wacli-${VERSION}-darwin-arm64-dynamic.tar.gz"
+          BREW_SHA="$(grep " ${BREW_ASSET}$" dist/SHA256SUMS | awk '{print $1}')"
+          BREW_URL="https://github.com/${REPO}/releases/download/${TAG}/${BREW_ASSET}"
+          bash .meta/packaging/scripts/generate-homebrew-formula.sh "$VERSION" "$BREW_URL" "$BREW_SHA"
+          cp .meta/packaging/homebrew/wacli.rb dist/homebrew-wacli.rb
+
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+
+  container:
+    runs-on: ubuntu-latest
+    needs: publish
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .meta/packaging/static-builds/Containerfile
+          push: true
+          provenance: false
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}:latest

@@ -8,30 +8,38 @@ Status: v0.1 (Crystal). The core implemented pieces are:
 - Operation routing by path tokens
 - `wacli oas validate` internal compatibility check
 
-## Install (mise)
+## Build (native Crystal)
 
-This repo is intended to be built with `mise`.
+1. Install Crystal (1.8+) and `shards` on your platform.
 
-1. Install tools:
-
-```sh
-mise install
-```
-
-2. Install Crystal deps and run tests:
+2. Install dependencies and run tests:
 
 ```sh
-mise exec -- shards install
-mise run test
+shards install
+crystal spec
 ```
 
 3. Build:
 
 ```sh
-mise run build
+shards build --release
 ```
 
 The binary will be at `bin/wacli`.
+
+## Packaging and Release Artifacts
+
+Packaging assets and scripts live in `.meta/packaging`.
+
+Release artifacts are built with:
+- Native Crystal builds in GitHub Actions (no `mise` in CI)
+- Tarballs named `wacli-<version>-<os>-<arch>-<link_mode>.tar.gz`
+- `dist/SHA256SUMS` checksum file
+- Homebrew formula generated at `.meta/packaging/homebrew/wacli.rb`
+- Container image published to `ghcr.io/<owner>/wacli`
+
+Lua release download helper:
+- `.meta/packaging/mise/download.lua`
 
 ## CLI
 
