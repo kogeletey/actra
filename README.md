@@ -270,7 +270,7 @@ To install it into Codex:
 
 ```sh
 mkdir -p ~/.codex/skills
-ln -s "$(pwd)/skills/wacli-openapi-compat" ~/.codex/skills/wacli-openapi-compat
+ln -s "$(pwd)/skills/wacli" ~/.codex/skills/wacli
 ```
 
 Skill metadata name is `wacli` (file stays in that folder).
