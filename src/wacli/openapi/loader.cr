@@ -3,12 +3,10 @@ require "json"
 require "uri"
 
 require "./document"
+require "./errors"
 require "./detector"
 
 module Wacli::OpenAPI
-  class UnsupportedVersionError < Exception
-  end
-
   module Loader
     def self.load_any(file_or_url : String) : Document
       if file_or_url.starts_with?("http://") || file_or_url.starts_with?("https://")

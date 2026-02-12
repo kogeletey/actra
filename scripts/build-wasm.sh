@@ -17,10 +17,13 @@ mkdir -p dist/wasm
 mkdir -p .crystal/cache
 export CRYSTAL_CACHE_DIR="${CRYSTAL_CACHE_DIR:-$root/.crystal/cache}"
 
-link_flags=""
-if [[ -n "${WASI_SDK_PATH:-}" && -d "${WASI_SDK_PATH}/share/wasi-sysroot" ]]; then
-  # Crystal doesn't always infer the WASI sysroot location; pass it explicitly.
-  link_flags="--sysroot=${WASI_SDK_PATH}/share/wasi-sysroot"
+# Crystal resolves `-lc` through CRYSTAL_LIBRARY_PATH. For WASI builds, point it
+# at the wasi-sdk libc directory instead of passing --sysroot to wasm-ld.
+if [[ -n "${WASI_SDK_PATH:-}" ]]; then
+  wasi_lib_dir="${WASI_SDK_PATH}/share/wasi-sysroot/lib/wasm32-wasi"
+  if [[ -d "$wasi_lib_dir" ]]; then
+    export CRYSTAL_LIBRARY_PATH="${wasi_lib_dir}${CRYSTAL_LIBRARY_PATH:+:${CRYSTAL_LIBRARY_PATH}}"
+  fi
 fi
 
 build_one() {
@@ -33,7 +36,6 @@ build_one() {
   crystal build "$src" \
     --target wasm32-wasi \
     -O z \
-    ${link_flags:+--link-flags "$link_flags"} \
     -o "$in"
 
   if command -v wasm-opt >/dev/null 2>&1; then

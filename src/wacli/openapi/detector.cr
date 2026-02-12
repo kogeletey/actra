@@ -1,5 +1,6 @@
 require "json"
 require "./document"
+require "./errors"
 
 module Wacli::OpenAPI
   module Detector
@@ -17,4 +18,3 @@ module Wacli::OpenAPI
     end
   end
 end
-
