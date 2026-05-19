@@ -2,15 +2,15 @@ require "spec"
 require "http/server"
 
 require "./support/tmpdir"
-require "../src/wacli/cli"
+require "../src/actra/cli"
 
 private def with_temp_root(&)
   SpecTmpdir.with do |root|
-    ENV["WACLI_TEST_ROOT"] = root
+    ENV["ACTRA_TEST_ROOT"] = root
     begin
       yield root
     ensure
-      ENV.delete("WACLI_TEST_ROOT")
+      ENV.delete("ACTRA_TEST_ROOT")
     end
   end
 end
@@ -18,7 +18,7 @@ end
 private def start_fallback_server(openapi_body : String) : Tuple(String, HTTP::Server)
   server = HTTP::Server.new do |ctx|
     case ctx.request.path
-    when "/.well-known/wacli.json", "/.well-know/wacli.json"
+    when "/.well-known/actra.json", "/.well-know/actra.json"
       ctx.response.status_code = 404
       ctx.response.print "nope"
     when "/openapi.json"
@@ -52,12 +52,12 @@ describe "auth header injection" do
         stdin_io = IO::Memory.new
         stdout_io = IO::Memory.new
         stderr_io = IO::Memory.new
-        Wacli::CLI.run(["auth", base, "--bearer", "ABC"], stdin_io, stdout_io, stderr_io).should eq(0)
+        Actra::CLI.run(["auth", base, "--bearer", "ABC"], stdin_io, stdout_io, stderr_io).should eq(0)
 
         stdin_io2 = IO::Memory.new
         stdout_io2 = IO::Memory.new
         stderr_io2 = IO::Memory.new
-        Wacli::CLI.run([base, "get", "ping", "--dry-run"], stdin_io2, stdout_io2, stderr_io2).should eq(0)
+        Actra::CLI.run([base, "get", "ping", "--dry-run"], stdin_io2, stdout_io2, stderr_io2).should eq(0)
         stdout_io2.to_s.should contain("Authorization: Bearer ABC")
       ensure
         server.close

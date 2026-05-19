@@ -4,16 +4,16 @@ require "json"
 require "file_utils"
 
 require "./support/tmpdir"
-require "../src/wacli/cli"
-require "../src/wacli/xdg"
+require "../src/actra/cli"
+require "../src/actra/xdg"
 
 private def with_temp_root(&)
   SpecTmpdir.with do |root|
-    ENV["WACLI_TEST_ROOT"] = root
+    ENV["ACTRA_TEST_ROOT"] = root
     begin
       yield root
     ensure
-      ENV.delete("WACLI_TEST_ROOT")
+      ENV.delete("ACTRA_TEST_ROOT")
     end
   end
 end
@@ -54,7 +54,7 @@ private def start_server(captured : Pointer(String)) : Tuple(String, HTTP::Serve
 
   server = HTTP::Server.new do |ctx|
     case ctx.request.path
-    when "/.well-known/wacli.json"
+    when "/.well-known/actra.json"
       ctx.response.status_code = 404
     when "/openapi.json"
       ctx.response.content_type = "application/json"
@@ -79,8 +79,8 @@ describe "interactive request body" do
   it "builds JSON from prompts for POST when stdin is a TTY" do
     with_temp_root do |root|
       # Disable fzf in tests to keep prompts deterministic.
-      FileUtils.mkdir_p(Wacli::Xdg.config_dir)
-      File.write(Wacli::Xdg.config_path, %({
+      FileUtils.mkdir_p(Actra::Xdg.config_dir)
+      File.write(Actra::Xdg.config_path, %({
         "render": {
           "pickers": { "prefer_fzf": false }
         }
@@ -96,7 +96,7 @@ describe "interactive request body" do
         stdin = TtyMemory.new("n\n2\nhello\n")
         stdout = IO::Memory.new
         stderr = IO::Memory.new
-        code = Wacli::CLI.run([base, "post", "things"], stdin, stdout, stderr)
+        code = Actra::CLI.run([base, "post", "things"], stdin, stdout, stderr)
         code.should eq(0)
 
         any = JSON.parse(captured.value)

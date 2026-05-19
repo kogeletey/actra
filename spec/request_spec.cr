@@ -1,9 +1,9 @@
 require "./spec_helper"
-require "../src/wacli/request"
+require "../src/actra/request"
 
-describe Wacli::Request do
+describe Actra::Request do
   it "builds a dry-run with interpolated path and query" do
-    req = Wacli::Request.build(
+    req = Actra::Request.build(
       base_url: "https://example.com/api",
       method: "get",
       path_template: "/repos/{owner}/{repo}/issues",

@@ -1,12 +1,12 @@
-name: wacli
+name: actra
 version: 0.1.0
 
 authors:
   - Konrad Geletey
 
 targets:
-  wacli:
-    main: src/wacli.cr
+  actra:
+    main: src/actra.cr
 
 dependencies:
   sqlite3:
