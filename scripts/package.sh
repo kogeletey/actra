@@ -21,18 +21,18 @@ if command -v git >/dev/null 2>&1; then
 fi
 
 dist="dist"
-name="wacli-${version}-${os}-${arch}"
+name="actra-${version}-${os}-${arch}"
 tmp="${dist}/${name}"
 
 rm -rf "$tmp"
 mkdir -p "$tmp"
 
-if [[ ! -f "bin/wacli" ]]; then
-  echo "missing bin/wacli (run: shards build --release)" >&2
+if [[ ! -f "bin/actra" ]]; then
+  echo "missing bin/actra (run: shards build --release)" >&2
   exit 1
 fi
 
-cp -a "bin/wacli" "$tmp/"
+cp -a "bin/actra" "$tmp/"
 cp -a "LICENSE" "$tmp/"
 cp -a "README.md" "$tmp/"
 

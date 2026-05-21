@@ -2,7 +2,7 @@ require "file_utils"
 require "random/secure"
 
 module SpecTmpdir
-  def self.with(prefix : String = "wacli_test", &)
+  def self.with(prefix : String = "actra_test", &)
     path = File.join(Dir.tempdir, "#{prefix}_#{Random::Secure.hex(8)}")
     FileUtils.mkdir_p(path)
     begin

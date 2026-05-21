@@ -33,7 +33,7 @@ while IFS= read -r line; do
   asset="${path##*/}"
 
   case "$asset" in
-    "wacli-${version}-darwin-"*.tar.gz)
+    "actra-${version}-darwin-"*.tar.gz)
       sha_by_asset["$asset"]="$sha"
       candidates+=("$asset")
       ;;
@@ -47,7 +47,7 @@ if [[ ${#candidates[@]} -eq 0 ]]; then
   exit 1
 fi
 
-expected="wacli-${version}-darwin-arm64-dynamic.tar.gz"
+expected="actra-${version}-darwin-arm64-dynamic.tar.gz"
 selected=""
 
 if [[ -n "${sha_by_asset[$expected]:-}" ]]; then

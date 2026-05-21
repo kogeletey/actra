@@ -1,0 +1,41 @@
+{
+  "name": "@kogeletey/actra",
+  "version": "0.1.0",
+  "description": "Shell-native OpenAPI, ForgeFed, and AI agent CLI.",
+  "license": "0BSD",
+  "type": "module",
+  "types": "./npm/actra.d.ts",
+  "exports": {
+    ".": {
+      "types": "./npm/actra.d.ts",
+      "default": "./npm/actra.js"
+    }
+  },
+  "bin": {
+    "actra": "./npm/actra.js"
+  },
+  "files": [
+    "npm",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test:package": "node --check npm/actra.js && npm pack --dry-run",
+    "sync:js-version": "node scripts/sync-js-package-version.mjs"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kogeletey/actra.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kogeletey/actra/issues"
+  },
+  "homepage": "https://github.com/kogeletey/actra#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  }
+}

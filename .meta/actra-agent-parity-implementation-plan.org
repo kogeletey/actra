@@ -1,0 +1,538 @@
+#+TITLE: Actra Agent Parity Implementation Plan
+#+DATE: 2026-05-20
+#+STARTUP: overview
+
+* Scope
+
+План покрывает четыре ближайших parity-направления из
+=.meta/actra-zerostack-parity.org=:
+
+- first-class local providers: =Ollama= and =llama.cpp=
+- shell preview caching by query for action previews
+- shell preview caching by query for file previews
+- Zerostack-like permissions model
+
+План intentionally не добавляет новый full-screen TUI. Цель P0 по shell UX:
+убрать лишние subprocess вызовы и мерцание в текущей bash/zsh activation
+модели, не завязывая core behavior на =zle -M=.
+
+* Current Code Anchors
+
+| Area | Current file |
+|------+--------------|
+| Provider resolution and request payloads | =src/actra/ai_provider.cr= |
+| RCL/JSON config parsing and default providers | =src/actra/config.cr= |
+| Agent CLI options | =src/actra/cli.cr= |
+| Agent execution and sessions | =src/actra/agent.cr= |
+| Built-in tools | =src/actra/agent_tool.cr= |
+| Session persistence | =src/actra/session.cr= |
+| Shell =@= picker and previews | =src/actra/activation.cr= |
+| Activation tests | =spec/activation_spec.cr= |
+| Agent/provider tests | =spec/agent_spec.cr= |
+| Config parser tests | =spec/rcl_config_spec.cr= |
+
+* Implementation Order
+
+| Phase | Work | Reason |
+|-------+------+--------|
+| P0 | Cache shell previews by query | fixes visible terminal lag/flicker first |
+| P1 | Add Ollama and llama.cpp provider presets | self-contained provider/config change |
+| P2 | Add permission data model and config parser | establishes policy API before tool changes |
+| P3 | Enforce permissions in tools | behavior-changing, depends on P2 |
+| P4 | Session allowlist, doom-loop, sandbox | advanced permission parity after core checks |
+
+* P0: Cache Shell Previews By Query
+
+** Goal
+
+Repeated =Tab=, arrow, =j=, or =k= actions with unchanged input must not rerun
+heavy =actra @ --action-preview ...= or =actra @ --mode-preview files ...=
+commands.
+
+** Files
+
+| File | Change |
+|------+--------|
+| =src/actra/activation.cr= | add action preview cache and file preview cache for zsh and bash sections |
+| =spec/activation_spec.cr= | assert cache variables/functions are emitted for both shells |
+
+** Design
+
+Use shell-local variables in generated activation script.
+
+For zsh:
+
+#+begin_src sh
+typeset -g ACTRA_AT_PREVIEW_CACHE_KEY=""
+typeset -g ACTRA_AT_PREVIEW_CACHE_VALUE=""
+typeset -g ACTRA_AT_FILE_PREVIEW_CACHE_KEY=""
+typeset -g ACTRA_AT_FILE_PREVIEW_CACHE_VALUE=""
+#+end_src
+
+For bash:
+
+#+begin_src sh
+ACTRA_AT_PREVIEW_CACHE_KEY=""
+ACTRA_AT_PREVIEW_CACHE_VALUE=""
+ACTRA_AT_FILE_PREVIEW_CACHE_KEY=""
+ACTRA_AT_FILE_PREVIEW_CACHE_VALUE=""
+#+end_src
+
+Add helper functions in both generated scripts:
+
+#+begin_src sh
+_actra_at_action_preview_cached() {
+  local action="$1"
+  local query="$2"
+  local key="action:${action}:${query}"
+  if [ "$ACTRA_AT_PREVIEW_CACHE_KEY" = "$key" ]; then
+    printf '%s' "$ACTRA_AT_PREVIEW_CACHE_VALUE"
+    return
+  fi
+  ACTRA_AT_PREVIEW_CACHE_VALUE="$(ACTRA_SHELL_HOOK=1 command actra @ --action-preview "$action" "$query" 2>&1)"
+  ACTRA_AT_PREVIEW_CACHE_KEY="$key"
+  printf '%s' "$ACTRA_AT_PREVIEW_CACHE_VALUE"
+}
+
+_actra_at_file_preview_cached() {
+  local query="$1"
+  local key="files:${query}"
+  if [ "$ACTRA_AT_FILE_PREVIEW_CACHE_KEY" = "$key" ]; then
+    printf '%s' "$ACTRA_AT_FILE_PREVIEW_CACHE_VALUE"
+    return
+  fi
+  ACTRA_AT_FILE_PREVIEW_CACHE_VALUE="$(ACTRA_SHELL_HOOK=1 command actra @ --mode-preview files "$query" 2>&1)"
+  ACTRA_AT_FILE_PREVIEW_CACHE_KEY="$key"
+  printf '%s' "$ACTRA_AT_FILE_PREVIEW_CACHE_VALUE"
+}
+#+end_src
+
+Use helpers inside:
+
+- =_actra_at_show_action_preview=
+- =_actra_at_show_mode_preview= when =ACTRA_AT_MODE= is =files=
+
+Invalidate caches when:
+
+- =function '@'= or =function @= executes selected action
+- query extraction changes naturally through cache key mismatch
+- shell hook initializes
+
+** Acceptance Criteria
+
+- Repeated action cycling with the same query reuses cached action preview.
+- Repeated file mode preview with the same query reuses cached file preview.
+- Existing candidate-list cache remains intact.
+- No =zle -M= usage is introduced.
+- =mise exec -- shards build= passes.
+- Fast generated-script checks pass:
+
+#+begin_src sh
+bin/actra activate bash | bash -n
+bin/actra activate zsh > /tmp/actra-zsh-hook.zsh
+zsh -n /tmp/actra-zsh-hook.zsh
+#+end_src
+
+** Tests
+
+Update =spec/activation_spec.cr= to check emitted helpers and variables:
+
+- =ACTRA_AT_PREVIEW_CACHE_KEY=
+- =ACTRA_AT_PREVIEW_CACHE_VALUE=
+- =ACTRA_AT_FILE_PREVIEW_CACHE_KEY=
+- =ACTRA_AT_FILE_PREVIEW_CACHE_VALUE=
+- =_actra_at_action_preview_cached=
+- =_actra_at_file_preview_cached=
+
+* P1: Ollama and llama.cpp Provider Presets
+
+** Goal
+
+Users can run local models without writing provider config:
+
+#+begin_src sh
+@agent --provider ollama --model qwen2.5-coder:7b --prompt code "fix this"
+@agent --provider llama.cpp --model local --prompt ask "explain this repo"
+@agent --provider llamacpp --model local "summarize README"
+#+end_src
+
+** Files
+
+| File | Change |
+|------+--------|
+| =src/actra/config.cr= | add default provider entries and aliases |
+| =src/actra/ai_provider.cr= | no change expected if OpenAI Chat API is enough |
+| =spec/agent_spec.cr= | provider payload/path tests |
+| =README.md= | local model examples |
+| =.meta/actra-zerostack-parity.org= | update status after implementation |
+
+** Provider Defaults
+
+| Provider | API | Base URL | Auth |
+|----------+-----+----------+------|
+| =ollama= | =openai-chat= | =http://127.0.0.1:11434/v1= | no auth |
+| =llama.cpp= | =openai-chat= | =http://127.0.0.1:8080/v1= | no auth |
+| =llamacpp= | alias/same config | =http://127.0.0.1:8080/v1= | no auth |
+
+Recommended default models:
+
+| Provider | Default model |
+|----------+---------------|
+| =ollama= | =llama3.1:8b= |
+| =llama.cpp= | =local= |
+| =llamacpp= | =local= |
+
+** Implementation Steps
+
+1. Extend =Config.default_providers= with =ollama=, =llama.cpp=, and =llamacpp=.
+2. Set =auth_header=false= and =api_key=nil= for local providers.
+3. Keep =api="openai-chat"= so =AiProvider.complete= uses =/chat/completions=.
+4. Add tests that =AiProvider.build_request= routes model/payload correctly for local providers.
+5. Add a fake local HTTP server test for =ollama= and =llamacpp= paths if cheap.
+6. Add README examples under Agent mode.
+
+** Acceptance Criteria
+
+- =--provider ollama= resolves without user config.
+- =--provider llama.cpp= resolves without user config.
+- =--provider llamacpp= resolves without user config.
+- Generated request URL uses =/chat/completions=.
+- Authorization header is not sent by default for local providers.
+- =--list-models= includes these default providers.
+- =mise exec -- shards build= passes.
+
+* P2: Permissions Data Model and Config Parser
+
+** Goal
+
+Add Zerostack-like permission concepts to Actra without enforcing them yet.
+This keeps parser/model work isolated from tool behavior changes.
+
+** Files
+
+| File | Change |
+|------+--------|
+| =src/actra/config.cr= | add permission structs and RCL/JSON parsing |
+| =src/actra/cli.cr= | parse permission CLI flags into =AgentOptions= |
+| =src/actra/agent.cr= | carry selected permission mode in options |
+| =spec/rcl_config_spec.cr= | parse =permissions= RCL block |
+| =spec/agent_spec.cr= | CLI option parse behavior if needed |
+
+** Data Model
+
+Add structs:
+
+#+begin_src crystal
+enum PermissionMode
+  Standard
+  Restrictive
+  AcceptAll
+  Yolo
+end
+
+struct ToolPermissionConfig
+  getter name : String
+  getter allow : Array(String)
+  getter ask : Array(String)
+  getter deny : Array(String)
+  getter ask_external : Bool
+end
+
+struct PermissionsConfig
+  getter default_mode : PermissionMode
+  getter sandbox : Bool
+  getter tools : Hash(String, ToolPermissionConfig)
+  getter doom_loop_threshold : Int32
+end
+#+end_src
+
+Add to =Config=:
+
+#+begin_src crystal
+getter permissions : PermissionsConfig
+#+end_src
+
+** RCL Shape
+
+#+begin_src rcl
+permissions do
+  default_mode = "standard"
+  sandbox = false
+  doom_loop_threshold = 3
+
+  tool "read" do
+    allow = ["**"]
+    ask_external = true
+  end
+
+  tool "write" do
+    ask = ["**"]
+    deny = [".git/**", "**/.env", "**/secrets/**"]
+  end
+end
+#+end_src
+
+** CLI Flags
+
+| Flag | Effect |
+|------+--------|
+| =--restrictive=, =-R= | force restrictive |
+| =--accept-all= | force accept-all |
+| =--yolo= | force yolo |
+| =--sandbox= | force sandbox for bash tool |
+| =--no-sandbox= | disable sandbox |
+
+** Acceptance Criteria
+
+- Existing configs still load unchanged.
+- RCL =permissions= block parses.
+- JSON legacy config can optionally parse equivalent permissions shape.
+- CLI flags override config mode for agent execution.
+- No tool enforcement yet in this phase.
+- =mise exec -- shards build= passes.
+
+* P3: Enforce Permissions in Built-in Tools
+
+** Goal
+
+All built-in tool calls route through one permission checker before executing.
+
+** Files
+
+| File | Change |
+|------+--------|
+| =src/actra/permission.cr= | new permission checker module |
+| =src/actra/agent_tool.cr= | call permission checker before built-in and external tools |
+| =src/actra/agent.cr= | build checker from config/options/session |
+| =src/actra/session.cr= | persist session allowlist entries |
+| =spec/agent_tool_spec.cr= or new =spec/permission_spec.cr= | checker behavior |
+
+** Checker API
+
+#+begin_src crystal
+module Actra::Permission
+  enum Decision
+    Allow
+    Ask
+    Deny
+  end
+
+  struct Request
+    getter tool : String
+    getter input_key : String
+    getter path : String?
+    getter command : String?
+  end
+
+  class Checker
+    def check(request : Request) : Decision
+    end
+  end
+end
+#+end_src
+
+** Tool Classification
+
+| Tool | Input key | Path-aware |
+|------+-----------+------------|
+| =read= | path | yes |
+| =ls= | path | yes |
+| =grep= | pattern + path | partial |
+| =find= | pattern + path | partial |
+| =bash= | command | no/path inferred later |
+| =write= | path | yes |
+| =edit= | path | yes |
+| external tools | tool + args JSON | no by default |
+
+** Mode Semantics
+
+| Mode | Behavior |
+|------+----------|
+| standard | allow read/search/list inside cwd; ask write/edit/bash; ask external paths |
+| restrictive | ask unless allow rule matches |
+| accept-all | allow inside cwd; ask external paths/destructive commands |
+| yolo | allow everything |
+
+Because Actra is non-interactive in many paths, initial =Ask= behavior should be:
+
+- In TTY: print concise prompt and read yes/no.
+- Non-TTY: deny with clear error unless =--accept-all= or =--yolo=.
+
+** Acceptance Criteria
+
+- =write= and =edit= no longer execute before permission check.
+- =bash= no longer executes before permission check.
+- Read-only tools can still work in standard mode inside cwd.
+- Non-TTY restrictive write fails safely.
+- =--yolo= allows the same write.
+- Permission denial returns tool result text, not process crash.
+- Existing =--no-tools= and =--tools= behavior still works.
+
+* P4: Session Allowlist, Doom-Loop Detection, Sandbox
+
+** Goal
+
+Complete high-value Zerostack permission parity after core enforcement.
+
+** Files
+
+| File | Change |
+|------+--------|
+| =src/actra/session.cr= | append/load permission allowlist entries |
+| =src/actra/permission.cr= | session allowlist + repeated-call tracking |
+| =src/actra/agent_tool.cr= | pass session/checker through registry |
+| =spec/permission_spec.cr= | doom-loop and allowlist tests |
+
+** Session Allowlist
+
+Persist entries as JSONL session records:
+
+#+begin_src json
+{"type":"permissionAllow","tool":"bash","pattern":"git status","timestamp":"..."}
+#+end_src
+
+Load them when opening/continuing a session and apply before config rules.
+
+** Doom-Loop Detection
+
+Track repeated identical permission requests:
+
+| Field | Meaning |
+|-------+---------|
+| tool | tool name |
+| input_key | normalized command/path/pattern |
+| count | consecutive repeat count |
+| threshold | default =3= |
+
+When threshold is reached:
+
+- standard/restrictive: ask or deny in non-TTY
+- accept-all: ask
+- yolo: allow but log warning in session
+
+** Sandbox
+
+For =bash= only:
+
+- Add =Sandbox.wrap(command)= abstraction.
+- First implementation can support bubblewrap if present.
+- If =--sandbox= is requested and bubblewrap is missing, fail clearly.
+- Do not silently run unsandboxed when sandbox is explicitly requested.
+
+** Acceptance Criteria
+
+- Approved decision can be reused in same session.
+- Repeated identical tool call trips threshold.
+- Sandbox explicit failure is clear when =bwrap= is missing.
+- =bash= command still captures stdout/stderr/exit status.
+
+* Verification Plan
+
+** Fast checks after every phase
+
+#+begin_src sh
+mise exec -- shards build
+#+end_src
+
+** Targeted specs by phase
+
+| Phase | Command |
+|-------+---------|
+| P0 | =mise exec -- crystal spec spec/activation_spec.cr= |
+| P1 | =mise exec -- crystal spec spec/agent_spec.cr spec/rcl_config_spec.cr= |
+| P2 | =mise exec -- crystal spec spec/rcl_config_spec.cr spec/agent_spec.cr= |
+| P3 | =mise exec -- crystal spec spec/permission_spec.cr spec/agent_spec.cr= |
+| P4 | =mise exec -- crystal spec spec/permission_spec.cr spec/agent_spec.cr= |
+
+** Shell syntax checks
+
+#+begin_src sh
+bin/actra activate bash | bash -n
+bin/actra activate zsh > /tmp/actra-zsh-hook.zsh
+zsh -n /tmp/actra-zsh-hook.zsh
+#+end_src
+
+* Delivery Checklist
+
+- [ ] P0 cache helpers added for zsh and bash.
+- [X] P0 no =zle -M= dependency added.
+- [X] P0 activation specs updated.
+- [X] P1 =ollama= provider preset added.
+- [X] P1 =llama.cpp= and =llamacpp= provider presets added.
+- [X] P1 README local model examples added.
+- [X] P2 permissions structs/config parser added.
+- [X] P2 CLI permission flags parsed.
+- [X] P3 permission checker enforces built-in tool policy.
+- [ ] P3 non-TTY denial is safe.
+- [ ] P4 session allowlist persisted.
+- [ ] P4 doom-loop detection implemented.
+- [ ] P4 optional bash sandbox implemented.
+- [ ] Build passes.
+- [ ] Targeted specs pass.
+
+* Notes
+
+- Keep RCL shape as real top-level blocks such as =base=, =provider=,
+  =permissions=, =server=, and =filetype=. Do not introduce a useless wrapper.
+- Preserve existing =--tools= and =--no-tools= semantics while adding
+  permissions. Tool availability and tool permission are separate concerns.
+- Provider presets should be defaults only. User =provider "...“ do ... end=
+  blocks must override built-ins by name.
+- Permission prompts must be concise because Actra also runs in shell shortcut
+  contexts like =@agent=.
+
+* Implementation checkpoint 2026-05-20
+- Added built-in local provider presets for `ollama`, `llama.cpp`, and `llamacpp` using OpenAI-compatible chat completions endpoints.
+- Added `PermissionsConfig`, `PermissionChecker`, per-tool allow/deny rules, permission modes, doom-loop counting, CLI flags, and tool-registry enforcement.
+- Added optional sandbox routing for shell tool execution through `bwrap` when sandbox mode is enabled.
+- Added action preview and file preview caching by query in zsh/bash activation hooks.
+- Added specs for provider presets, RCL permissions parsing, and shell preview cache markers.
+- Build/tests were not run in this checkpoint.
+- Added TTY permission prompt behavior for ask decisions; non-TTY keeps ask as a safe failure.
+- Added session permission allowlist persistence through `permissionAllow` JSONL entries and wired it into agent tool permission checks.
+- Added JSONL RPC permission management commands: `permission_allow` / `allow_permission` and `permissions` / `permission_state`; `get_state` now exposes permission state.
+- Added default RCL entries for local providers and permissions so fresh config generation exposes the implemented features.
+- Added README examples for Ollama, llama.cpp, permission modes, sandbox, and permissions RCL.
+- Parser now accepts both `mode` and `default_mode` in permissions config.
+- Added provider routing specs for `ollama`, `llama.cpp`, and `llamacpp` against fake OpenAI-compatible chat servers.
+- Added `spec/permission_spec.cr` for standard read/write/shell policy, explicit deny, session allowlist, and doom-loop threshold behavior.
+- Updated parity status notes for implemented Ollama, llama.cpp, and permissions model pieces.
+- Extended sandbox routing to external extension tools as well as the built-in `bash` tool.
+- External tool permission requests now use stable `tool:arguments` input keys and expose extension command strings for rule matching.
+- Simplified built-in shell execution to use the same sandbox-aware helper as external tools, avoiding duplicated bwrap checks.
+- RPC permission state now reports effective CLI/runtime overrides instead of only static config values.
+- Added RPC `permission_mode` / `set_permission_mode` to switch permission mode during a JSONL session.
+- Added stable lower-case permission mode serialization for config print and RPC state.
+- Added `spec/agent_tool_spec.cr` for visible built-in and extension tool permission failures plus clear sandbox failure output when `bwrap` is unavailable.
+- Added optional live `/models` listing for localhost OpenAI-compatible providers when `--list-models` search explicitly targets that provider/base URL.
+- Added fake-server spec coverage for live Ollama model listing.
+- Hardened Crystal typechecker edges: stable enum mode serialization, no live model probes for empty `--list-models`, and non-nil shell process input forwarding.
+- Documented JSONL RPC permission commands for headless permission state inspection, mode switching, and session allowlist grants.
+- `actra config print` now shows detailed permission tool rules, with CLI spec coverage for mode/sandbox/rules output.
+- JSON event mode now includes effective permission state in the initial `session` event for machine consumers.
+- Added `accept` as a compatibility alias for the `accept-all` permission mode in config/RPC parsing, with spec and README coverage.
+- Added session permission revoke support through `permissionRevoke` JSONL entries and RPC `permission_revoke` / `revoke_permission` commands.
+- Standard permission mode now asks for external/unknown tools instead of allowing them implicitly; extension-tool tests and docs now use explicit `--accept-all` trust.
+- Hardened session permission allowlist replay with explicit non-nil tool/pattern values after JSON parsing.
+- Added generic `--permission-mode MODE` CLI flag with `accept` alias support, usage text, README example, and RPC state spec coverage.
+- Usage text and help spec now expose `--permission-mode` for both `actra agent` and direct `actra -p` flows.
+- Shared JSON/RPC permission state payload now includes configured rules and doom-loop threshold, not only effective mode/sandbox/allowlist.
+- Permission state payloads now include `mode_source` and `sandbox_source` to distinguish config-derived policy from CLI/RPC overrides.
+- Non-interactive ask decisions now append `permissionRequest` JSONL entries and expose pending requests in JSON/RPC permission state.
+- Permission prompts now use agent-provided input/error streams instead of global STDIN/STDERR, preserving CLI behavior while making embedded and JSON/RPC execution cleaner.
+- Permission state `requests` now reports effective pending requests only, using session allowlist glob matching and revoke-aware replay.
+- Added specs for session allow entry matching and pending permission request replay with allow/revoke events.
+- Hardened permission matching for Crystal type safety by avoiding Bool-or-Nil matcher expressions.
+- Pending permission requests are now deduplicated by tool/input/path/command while still respecting allow/revoke replay.
+- Added session-level permission deny/dismiss through `permissionDeny` JSONL entries and RPC `permission_deny` / `permission_dismiss` aliases; permission state now exposes `denials` and filters denied requests from pending requests.
+- Session denials now feed into PermissionChecker and deny future matching tool calls in the same session, not only hide pending requests.
+- Fixed PermissionChecker decision ordering so explicit/session denials keep priority over doom-loop ask decisions; added deny-priority spec coverage.
+- Pending permission requests now include `reason` and `count` metadata, distinguishing normal policy asks from doom-loop threshold asks.
+- Session permission allow/deny/revoke replay now uses latest decision wins for the same tool+pattern, so allow can clear a previous deny and revoke clears prior decisions.
+- Permission state now includes `decisions`, a latest-wins effective allow/deny decision list for machine clients, alongside derived allowlist and denials views.
+- Added direct agent CLI `--permission-state` to print JSON permission state without calling a provider, with usage, README, and spec coverage.
+- Added direct no-provider CLI permission mutations: `--permission-allow TOOL:PATTERN`, `--permission-deny TOOL:PATTERN`, and `--permission-revoke TOOL:PATTERN`, with README and spec coverage.
+- Permission state JSON now includes `session_id` and `session_path` so direct CLI callers can keep using the same session after state queries or mutations.
+- Permission rules now support explicit `ask` patterns in addition to `allow` and `deny`, including RCL/JSON parsing, config print, permission state, README, and specs.
+- Explicit per-tool rule precedence is now `deny > ask > allow`, with default mode behavior only when no explicit rule matches.
+- Added `permissionClear` session event plus RPC/direct CLI `permission_clear` / `--permission-clear` to clear effective session permission decisions without deleting append-only history.

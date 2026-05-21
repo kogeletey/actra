@@ -71,10 +71,10 @@ jobs:
 
           echo "Using Homebrew archive: $BREW_ASSET"
           bash .meta/packaging/scripts/generate-homebrew-formula.sh "$VERSION" "$BREW_URL" "$BREW_SHA" "$HOMEPAGE"
-          cp .meta/packaging/homebrew/wacli.rb dist/homebrew-wacli.rb
+          cp .meta/packaging/homebrew/actra.rb dist/homebrew-actra.rb
 
       - name: Upload formula asset to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
-          files: dist/homebrew-wacli.rb
+          files: dist/homebrew-actra.rb

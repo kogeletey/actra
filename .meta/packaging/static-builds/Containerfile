@@ -16,9 +16,9 @@ RUN shards install
 COPY . .
 RUN CRYSTAL_CACHE_DIR=/tmp/.crystal-cache \
   mkdir -p /out && \
-  crystal build src/wacli.cr --release --static -o /out/wacli
+  crystal build src/actra.cr --release --static -o /out/actra
 
 FROM scratch
-COPY --from=builder /out/wacli /usr/local/bin/wacli
+COPY --from=builder /out/actra /usr/local/bin/actra
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-ENTRYPOINT ["/usr/local/bin/wacli"]
+ENTRYPOINT ["/usr/local/bin/actra"]

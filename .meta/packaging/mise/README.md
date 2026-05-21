@@ -1,6 +1,6 @@
 # Lua release download helper
 
-This helper downloads a published `wacli` release tarball, verifies it using `SHA256SUMS`, and installs the binary.
+This helper downloads a published `actra` release tarball, verifies it using `SHA256SUMS`, and installs the binary.
 
 ## Usage
 
@@ -17,4 +17,4 @@ lua .meta/packaging/mise/download.lua v0.1.0 darwin arm64 dynamic /usr/local/bin
 
 Environment:
 
-- `GITHUB_REPOSITORY` (optional): defaults to `wacli/wacli`
+- `GITHUB_REPOSITORY` (optional): defaults to `kogeletey/actra`

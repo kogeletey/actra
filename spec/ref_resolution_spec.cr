@@ -1,7 +1,7 @@
 require "spec"
 require "http/server"
 
-require "../src/wacli/cli"
+require "../src/actra/cli"
 
 private def start_server : Tuple(String, HTTP::Server)
   openapi = %({
@@ -36,7 +36,7 @@ private def start_server : Tuple(String, HTTP::Server)
 
   server = HTTP::Server.new do |ctx|
     case ctx.request.path
-    when "/.well-known/wacli.json", "/.well-know/wacli.json"
+    when "/.well-known/actra.json", "/.well-know/actra.json"
       ctx.response.status_code = 404
     when "/openapi.json"
       ctx.response.content_type = "application/json"
@@ -60,7 +60,7 @@ describe "local $ref resolution" do
       stdin = IO::Memory.new
       stdout = IO::Memory.new
       stderr = IO::Memory.new
-      Wacli::CLI.run(["help", base, "post", "things"], stdin, stdout, stderr).should eq(0)
+      Actra::CLI.run(["help", base, "post", "things"], stdin, stdout, stderr).should eq(0)
 
       out = stdout.to_s
       out.should contain("id: string (required)")
