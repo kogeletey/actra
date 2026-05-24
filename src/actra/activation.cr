@@ -343,14 +343,17 @@ module Actra
       }
 
       _actra_at_tab_action() {
-        if _actra_at_mode_mode "$BUFFER"; then
-          if [[ "$ACTRA_AT_MODE" != "actions" ]]; then
-            ACTRA_AT_ACTION_INDEX=-1
-          fi
-          ACTRA_AT_MODE="actions"
+        if _actra_at_action_mode "$BUFFER"; then
           _actra_at_load_action_candidates "$BUFFER"
           _actra_at_next_action
           _actra_at_show_action_preview
+        elif _actra_at_mode_mode "$BUFFER"; then
+          _actra_at_next_mode "$BUFFER"
+          if [[ "$ACTRA_AT_MODE" == "actions" ]]; then
+            _actra_at_show_action_preview
+          else
+            _actra_at_show_mode_preview
+          fi
         else
           zle expand-or-complete
         fi
@@ -402,13 +405,12 @@ module Actra
           _actra_at_prev_action
           _actra_at_show_action_preview
         elif _actra_at_mode_mode "$BUFFER"; then
-          if [[ "$ACTRA_AT_MODE" != "actions" ]]; then
-            ACTRA_AT_ACTION_INDEX=-1
+          _actra_at_prev_mode "$BUFFER"
+          if [[ "$ACTRA_AT_MODE" == "actions" ]]; then
+            _actra_at_show_action_preview
+          else
+            _actra_at_show_mode_preview
           fi
-          ACTRA_AT_MODE="actions"
-          _actra_at_load_action_candidates "$BUFFER"
-          _actra_at_prev_action
-          _actra_at_show_action_preview
         else
           zle reverse-menu-complete
         fi
@@ -787,14 +789,17 @@ module Actra
       }
 
       _actra_at_tab_action() {
-        if _actra_at_mode_mode "$READLINE_LINE"; then
-          if [[ "$ACTRA_AT_MODE" != "actions" ]]; then
-            ACTRA_AT_ACTION_INDEX=-1
-          fi
-          ACTRA_AT_MODE="actions"
+        if _actra_at_action_mode "$READLINE_LINE"; then
           _actra_at_load_action_candidates "$READLINE_LINE"
           _actra_at_next_action
           _actra_at_show_action_preview
+        elif _actra_at_mode_mode "$READLINE_LINE"; then
+          _actra_at_next_mode "$READLINE_LINE"
+          if [[ "$ACTRA_AT_MODE" == "actions" ]]; then
+            _actra_at_show_action_preview
+          else
+            _actra_at_show_mode_preview
+          fi
         else
           local before="${READLINE_LINE:0:READLINE_POINT}"
           local after="${READLINE_LINE:READLINE_POINT}"
@@ -809,13 +814,12 @@ module Actra
           _actra_at_prev_action
           _actra_at_show_action_preview
         elif _actra_at_mode_mode "$READLINE_LINE"; then
-          if [[ "$ACTRA_AT_MODE" != "actions" ]]; then
-            ACTRA_AT_ACTION_INDEX=-1
+          _actra_at_prev_mode "$READLINE_LINE"
+          if [[ "$ACTRA_AT_MODE" == "actions" ]]; then
+            _actra_at_show_action_preview
+          else
+            _actra_at_show_mode_preview
           fi
-          ACTRA_AT_MODE="actions"
-          _actra_at_load_action_candidates "$READLINE_LINE"
-          _actra_at_prev_action
-          _actra_at_show_action_preview
         else
           :
         fi
