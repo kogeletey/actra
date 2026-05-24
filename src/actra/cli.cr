@@ -1350,7 +1350,7 @@ module Actra
         when "code"
           query.empty? ? "missing task" : command_line(["@code", query])
         when "agent"
-          query.empty? ? "actra @ --action agent" : "actra @ --action agent #{command_line(argv)}"
+          query.empty? ? "actra agent" : "actra agent #{command_line(argv)}"
         when "stats"
           command = query.empty? ? "actra @ --action stats" : "actra @ --action stats #{command_line(argv)}"
           "show #{command}"
