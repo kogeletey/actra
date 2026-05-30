@@ -37,13 +37,13 @@ export CRYSTAL_CACHE_DIR="${CRYSTAL_CACHE_DIR:-$root/.crystal/cache}"
 
 shards install
 
-out="bin/wacli-${version}-${os}-${arch}-${link_mode}"
+out="bin/actra-${version}-${os}-${arch}-${link_mode}"
 build_args=(--release -o "$out")
 if [[ "$link_mode" == "static" ]]; then
   build_args+=(--static)
 fi
 
-crystal build src/wacli.cr "${build_args[@]}"
+crystal build src/actra.cr "${build_args[@]}"
 chmod +x "$out"
 
 echo "built: $out"

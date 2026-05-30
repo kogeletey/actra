@@ -3,15 +3,15 @@ require "http/server"
 require "file_utils"
 
 require "./support/tmpdir"
-require "../src/wacli/cli"
+require "../src/actra/cli"
 
 private def with_temp_root(&)
   SpecTmpdir.with do |root|
-    ENV["WACLI_TEST_ROOT"] = root
+    ENV["ACTRA_TEST_ROOT"] = root
     begin
       yield root
     ensure
-      ENV.delete("WACLI_TEST_ROOT")
+      ENV.delete("ACTRA_TEST_ROOT")
     end
   end
 end
@@ -26,7 +26,7 @@ private def start_server : Tuple(String, HTTP::Server)
 
   server = HTTP::Server.new do |ctx|
     case ctx.request.path
-    when "/.well-known/wacli.json", "/.well-know/wacli.json"
+    when "/.well-known/actra.json", "/.well-know/actra.json"
       ctx.response.status_code = 404
     when "/openapi.json"
       ctx.response.content_type = "application/json"
@@ -57,7 +57,7 @@ describe "download to --out" do
         stdin = IO::Memory.new
         stdout = IO::Memory.new
         stderr = IO::Memory.new
-        code = Wacli::CLI.run([base, "get", "file", "--out", out_path], stdin, stdout, stderr)
+        code = Actra::CLI.run([base, "get", "file", "--out", out_path], stdin, stdout, stderr)
         code.should eq(0)
         File.read(out_path).should eq("hello")
         stderr.to_s.should contain("saved:")

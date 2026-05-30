@@ -34,9 +34,9 @@ if version:sub(1, 1) ~= "v" then
   version = "v" .. version
 end
 
-local repo = getenv("GITHUB_REPOSITORY", "wacli/wacli")
+local repo = getenv("GITHUB_REPOSITORY", "kogeletey/actra")
 local base = "https://github.com/" .. repo .. "/releases/download/" .. version
-local name = "wacli-" .. version:sub(2) .. "-" .. os_name .. "-" .. arch .. "-" .. link_mode
+local name = "actra-" .. version:sub(2) .. "-" .. os_name .. "-" .. arch .. "-" .. link_mode
 local archive = name .. ".tar.gz"
 local checksum = "SHA256SUMS"
 
@@ -51,7 +51,7 @@ else
 end
 
 run(string.format("tar -xzf %s", archive))
-run(string.format("cp %s/wacli %s/wacli", name, install_dir))
-run(string.format("chmod +x %s/wacli", install_dir))
+run(string.format("cp %s/actra %s/actra", name, install_dir))
+run(string.format("chmod +x %s/actra", install_dir))
 
-print("installed " .. install_dir .. "/wacli")
+print("installed " .. install_dir .. "/actra")

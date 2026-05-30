@@ -1,0 +1,17 @@
+class Actra < Formula
+  desc "Shell-native OpenAPI, ForgeFed, and AI agent CLI"
+  homepage "@HOMEPAGE@"
+  url "@URL@"
+  sha256 "@SHA256@"
+  version "@VERSION@"
+  license "0BSD"
+
+  def install
+    bin.install "actra"
+  end
+
+  test do
+    output = shell_output("#{bin}/actra --help 2>&1")
+    assert_match "actra", output
+  end
+end

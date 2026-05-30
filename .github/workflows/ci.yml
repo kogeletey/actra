@@ -18,6 +18,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash .meta/packaging/scripts/test-homebrew-packaging.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - run: npm run test:package
       - uses: crystal-lang/install-crystal@v1
         with:
           crystal: latest

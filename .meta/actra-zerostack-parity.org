@@ -1,0 +1,277 @@
+#+TITLE: Actra / Zerostack Agent Parity
+#+DATE: 2026-05-20
+#+STARTUP: overview
+
+* Scope
+
+This document tracks Actra agent parity against the local Zerostack reference in
+=.meta/zerostack=.
+
+The focus is agent-mode parity exposed through:
+
+- =actra agent ...=
+- =actra -p ...=
+- =actra @ --action agent ...=
+- shell shortcut =@agent ...=
+
+* Legend
+
+| Status | Meaning |
+|--------+---------|
+| DONE | Working Actra equivalent exists |
+| PARTIAL | Actra has a base implementation but not full parity |
+| MISSING | No Actra equivalent yet |
+| EXTRA | Actra-specific capability outside Zerostack parity |
+| TODO | Explicit target for upcoming implementation |
+
+* Core Agent Parity
+
+| Feature | Zerostack | Actra | Status |
+|---------+-----------+-------+--------|
+| One-shot print mode | =zerostack -p= | =actra -p=, =actra agent= | DONE |
+| Provider/model flags | =--provider=, =--model= | =--provider=, =--model= | DONE |
+| Built-in prompt modes | =code plan review debug ask ...= | =--prompt=, =--prompt-mode=, =--list-prompts= | DONE |
+| Default coding prompt | =code= default | =code= default | DONE |
+| Context files | =AGENTS.md=, =CLAUDE.md= | =AGENTS.md=, =CLAUDE.md= | DONE |
+| Disable context files | =-n=, =--no-context-files= | =-nc=, =--no-context-files= | DONE |
+| Prompt templates from files | custom prompt files | =--prompt-template= | PARTIAL |
+| Skills injection | not primary surface | =--skill= | EXTRA |
+| JSON output mode | nonequivalent | =--mode json= | EXTRA |
+| JSONL RPC mode | ACP/interactive oriented | =--mode rpc= | EXTRA |
+| Extension hooks | nonequivalent | Actra extension runtime | EXTRA |
+
+* @ Agent Shell Parity
+
+| Feature | Zerostack | Actra | Status |
+|---------+-----------+-------+--------|
+| Agent callable from shell | =zerostack ...= | =@agent ...= | DONE |
+| Prompt mode from shell | =/prompt= | =@agent --prompt debug ...= | DONE |
+| Direct action shortcuts | nonequivalent | =@assistant @agent @run @background @remote @container @stats= | DONE |
+| File context tokens | TUI input context | =@path= expansion | DONE |
+| Shell picker/actions | terminal UI | bash/zsh activation menu | PARTIAL |
+| Stable non-lag menu | crossterm TUI | shell hook still fragile | PARTIAL |
+| Avoid zle-only rendering | crossterm app | should not depend on =zle -M= for core behavior | TODO |
+| Cache action previews by query | TUI state cache | cache =--action-preview= output by query/action in shell hook | TODO |
+| Cache file previews by query | TUI state cache | cache =--mode-preview files= output by query in shell hook | TODO |
+
+* Provider Parity
+
+| Provider | Zerostack | Actra | Status | Target |
+|----------+-----------+-------+--------+--------|
+| OpenAI | native | Responses + Chat Completions | DONE | keep |
+| OpenAI-compatible | native/custom | RCL provider config | PARTIAL | normalize docs and presets |
+| OpenRouter | native default | compatible via provider config | PARTIAL | add first-class preset |
+| Anthropic | native | not native | MISSING | add native provider |
+| Gemini | native | not native | MISSING | add native provider |
+| Ollama | native | built-in provider preset | DONE | =ollama= via OpenAI-compatible chat |
+| llama.cpp | via OpenAI-compatible server pattern | built-in provider preset | DONE | =llama.cpp= and =llamacpp= aliases |
+| Custom providers | config JSON | RCL provider config | PARTIAL | complete model/provider docs |
+| List models | provider/config support | =--list-models= | PARTIAL | support live provider model listing where possible |
+
+** Ollama target behavior
+
+- Provider name: =ollama=.
+- Default base URL: =http://127.0.0.1:11434/v1= for OpenAI-compatible chat.
+- Default API: OpenAI Chat Completions compatible.
+- API key: optional/empty.
+- Example:
+
+#+begin_src sh
+actra --provider ollama --model llama3.1:8b "explain this repo"
+@agent --provider ollama --model qwen2.5-coder:7b --prompt code "fix this bug"
+#+end_src
+
+** llama.cpp target behavior
+
+- Provider name: =llama.cpp= or =llamacpp= alias.
+- Default base URL: =http://127.0.0.1:8080/v1=.
+- Default API: OpenAI Chat Completions compatible.
+- API key: optional/empty.
+- Example:
+
+#+begin_src sh
+actra --provider llama.cpp --model local-model "summarize README"
+@agent --provider llamacpp --model local --prompt ask "trace config loading"
+#+end_src
+
+* Tools Parity
+
+| Feature | Zerostack | Actra | Status |
+|---------+-----------+-------+--------|
+| read | built-in | built-in | DONE |
+| write | built-in | built-in | DONE |
+| edit | built-in | built-in | DONE |
+| bash | built-in | built-in | DONE |
+| grep | built-in | built-in | DONE |
+| find files | =find_files= | =find= | DONE |
+| list dir | =list_dir= | =ls= | DONE |
+| todo tool | =write_todo_list= | not present | MISSING |
+| tool allowlist | tool config/permission | =--tools= allowlist | PARTIAL |
+| disable tools | =--no-tools= | =--no-tools= | DONE |
+| disable builtins | nonequivalent | =--no-builtin-tools= | EXTRA |
+| extension tools | MCP/tools | extension-registered tools | PARTIAL |
+
+* Permissions Model Parity
+
+Zerostack has a real permissions model. Actra now has policy-backed permissions in agent tools, including modes, per-tool allow/deny rules, session allowlists, doom-loop detection, and optional sandbox routing.
+
+| Feature | Zerostack | Actra | Status |
+|---------+-----------+-------+--------|
+| restrictive mode | =-R= | absent | TODO |
+| standard mode | default safe/ask policy | absent | TODO |
+| accept-all mode | =--accept-all= | absent | TODO |
+| yolo mode | =--yolo= | absent | TODO |
+| per-tool allow rules | config permission rules | absent | TODO |
+| per-tool deny rules | config permission rules | absent | TODO |
+| path-aware write/read checks | cwd/external policy | absent | TODO |
+| session allowlist | approved decisions persist in session | absent | TODO |
+| doom-loop detection | repeated tool call guard | absent | TODO |
+| sandboxed bash | =--sandbox= bubblewrap | absent | TODO |
+
+** Actra target permission modes
+
+| Mode | CLI | Behavior |
+|------+-----+----------|
+| standard | default | allow safe reads/searches in cwd, ask for writes/bash/destructive operations |
+| restrictive | =--restrictive= / =-R= | ask for every tool call unless allowed by config |
+| accept-all | =--accept-all= | auto-approve operations inside cwd, ask for external paths |
+| yolo | =--yolo= | auto-approve all tool calls without prompts |
+
+** Proposed RCL shape
+
+Do not wrap this in a top-level =actra do ... end= block. Keep real RCL blocks.
+
+#+begin_src rcl
+permissions do
+  default_mode = "standard"
+  sandbox = false
+
+  tool "read" do
+    allow = ["**"]
+    ask_external = true
+  end
+
+  tool "write" do
+    ask = ["**"]
+    deny = [".git/**", "**/.env", "**/secrets/**"]
+  end
+
+  tool "bash" do
+    allow = ["ls *", "pwd", "git status", "git diff *"]
+    ask = ["*"]
+    deny = ["rm -rf *", "git reset --hard *"]
+  end
+end
+#+end_src
+
+* Sessions Parity
+
+| Feature | Zerostack | Actra | Status |
+|---------+-----------+-------+--------|
+| save sessions | JSON sessions | JSONL sessions | DONE |
+| continue latest | =-c= | =-c=, =--continue= | DONE |
+| resume session | =-r= browse/select | continue-style behavior | PARTIAL |
+| specific session | =--session= | =--session= | DONE |
+| no session | =--no-session= | =--no-session= | DONE |
+| fork session | nonequivalent | =--fork= | EXTRA |
+| export session | nonequivalent | =--export= HTML | EXTRA |
+| auto-compaction | context window compaction | absent | MISSING |
+| chat history UI | TUI slash commands | absent | MISSING |
+
+* Interactive UI / Slash Commands
+
+| Feature | Zerostack | Actra | Status |
+|---------+-----------+-------+--------|
+| Full terminal UI | crossterm renderer | shell hook + CLI output | PARTIAL |
+| markdown rendering | crossterm markdown | raw terminal/CLI | MISSING |
+| scrollback UI | built-in | shell terminal only | MISSING |
+| mouse selection/copy | built-in | terminal-native only | MISSING |
+| reasoning visibility toggle | built-in | absent | MISSING |
+| =/model= | slash command | CLI flags only | MISSING |
+| =/thinking= | slash command | parsed placeholder only | MISSING |
+| =/clear= | slash command | absent | MISSING |
+| =/session= | slash command | CLI flags only | PARTIAL |
+| =/prompt= | slash command | =--prompt= / =@agent --prompt= | PARTIAL |
+| =/mode= permissions | slash command | CLI/RPC permission modes | PARTIAL |
+| =/help= | slash command | CLI help/query | PARTIAL |
+
+* Loop / Worktree / ACP / MCP Parity
+
+| Feature | Zerostack | Actra | Status |
+|---------+-----------+-------+--------|
+| headless loop | =--loop= flags | absent | MISSING |
+| interactive loop | =/loop= | absent | MISSING |
+| loop plan file | =LOOP_PLAN.md= | absent | MISSING |
+| validation command per loop | =--loop-run= | absent | MISSING |
+| git worktree create | =/worktree= | absent | MISSING |
+| git worktree merge | =/wt-merge= | absent | MISSING |
+| git worktree exit | =/wt-exit= | absent | MISSING |
+| MCP support | feature-gated MCP client | absent | MISSING |
+| Exa WebSearch/WebFetch | integrated tools | absent | MISSING |
+| ACP stdio/TCP | feature-gated server | absent | MISSING |
+
+* Actra-Specific Extras
+
+| Feature | Actra |
+|---------+-------|
+| OpenAPI command execution | =actra @example.org get ...= |
+| OpenAPI docs/help | =?tool docs/help= |
+| ForgeFed actor dispatch | =@actor@domain= / =@code= |
+| RCL config | =config.rcl= |
+| Shell auth helpers | =actra auth shell= |
+| Remote/container/background launch | =@remote @container @background= |
+| File action menu | insert/open/copy/run/cd |
+| Package distribution | npm/JSR/Homebrew/Nix/container |
+
+* Roadmap
+
+** P0: Shell UX stability
+
+| Task | Target | Acceptance |
+|------+--------+------------|
+| Cache action previews by query/action | activation hook | repeated Tab on same query must not rerun =actra @ --action-preview= |
+| Cache file previews by query | activation hook | repeated file-mode redraw must not rerun =actra @ --mode-preview files= |
+| Cache action candidate list by query | activation hook | repeated action cycling should reuse loaded candidates |
+| Remove zle-only rendering dependency | activation hook | core picker behavior should work without =zle -M= |
+| Avoid terminal flicker | activation hook | menu should not appear/disappear on every Tab |
+
+** P1: Local model providers
+
+| Task | Target | Acceptance |
+|------+--------+------------|
+| Add Ollama provider preset | provider config | =--provider ollama= works with default local base URL |
+| Add llama.cpp provider preset | provider config | =--provider llama.cpp= and =--provider llamacpp= work with default local base URL |
+| Document local models | README | examples for =@agent --provider ollama= and =@agent --provider llama.cpp= |
+| Add provider specs | specs | payload path and model routing covered |
+
+** P2: Permissions model
+
+| Task | Target | Acceptance |
+|------+--------+------------|
+| Add permission options | CLI | =--restrictive=, =--accept-all=, =--yolo= parsed |
+| Add permission config | RCL | =permissions= block parsed |
+| Add tool policy checks | agent tools | read/write/bash/edit route through permission checker |
+| Add session allowlist | sessions | approved decisions persist for current session |
+| Add doom-loop detection | tool registry | repeated identical tool call triggers ask/deny after threshold |
+| Add sandbox option | bash tool | optional bubblewrap wrapping for bash commands |
+
+** P3: Long-horizon agent workflows
+
+| Task | Target | Acceptance |
+|------+--------+------------|
+| Add =actra agent --loop= | agent CLI | loop can iterate over a prompt |
+| Add loop plan file | session dir | =LOOP_PLAN.md= or configured path updated |
+| Add validation command | CLI | =--loop-run "cmd"= runs after each iteration |
+| Add worktree commands | CLI or prompt command | create/merge/exit flow exists |
+
+* Current Bottom Line
+
+Actra has solid parity for one-shot agent execution, prompt modes, JSON/RPC
+machine modes, sessions, extension hooks, core tools, and shell =@agent= entry.
+
+The next concrete parity targets are:
+
+1. Shell preview caching by query to remove flicker and terminal lag.
+2. First-class local model provider presets for Ollama and llama.cpp.
+3. A real permissions model with modes, config rules, session allowlists,
+   doom-loop detection, and optional sandboxing.

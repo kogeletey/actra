@@ -1,0 +1,72 @@
+name: publish-registries
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (example: v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Sync package versions from tag
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          npm run sync:js-version -- "$VERSION"
+
+      - name: Wait for native release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          mkdir -p dist
+          for attempt in $(seq 1 12); do
+            rm -f dist/SHA256SUMS
+            if gh release download "$TAG" -R "$REPO" -p "SHA256SUMS" -D dist; then
+              break
+            fi
+            if [[ "$attempt" -eq 12 ]]; then
+              echo "failed to download SHA256SUMS from release $TAG after retries" >&2
+              exit 1
+            fi
+            echo "SHA256SUMS not available yet (attempt $attempt/12); retrying in 10s..."
+            sleep 10
+          done
+
+          grep -q "actra-${VERSION}-linux-amd64-static.tar.gz" dist/SHA256SUMS
+          grep -q "actra-${VERSION}-linux-arm64-static.tar.gz" dist/SHA256SUMS
+          grep -q "actra-${VERSION}-darwin-arm64-dynamic.tar.gz" dist/SHA256SUMS
+
+      - name: Verify package payload
+        run: npm run test:package
+
+      - name: Publish to JSR
+        run: npx --yes jsr publish
+
+      - name: Publish to npm
+        run: npm publish --access public

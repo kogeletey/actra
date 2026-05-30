@@ -7,15 +7,15 @@ cd "$root"
 version="${1:-${VERSION:-}}"
 url="${2:-${HOMEBREW_URL:-}}"
 sha="${3:-${HOMEBREW_SHA256:-}}"
-homepage="${4:-${HOMEBREW_HOMEPAGE:-https://github.com/wacli/wacli}}"
+homepage="${4:-${HOMEBREW_HOMEPAGE:-https://github.com/kogeletey/actra}}"
 
 if [[ -z "$version" || -z "$url" || -z "$sha" ]]; then
   echo "usage: generate-homebrew-formula.sh <version> <url> <sha256> [homepage]" >&2
   exit 1
 fi
 
-tmpl=".meta/packaging/homebrew/wacli.rb.tmpl"
-out=".meta/packaging/homebrew/wacli.rb"
+tmpl=".meta/packaging/homebrew/actra.rb.tmpl"
+out=".meta/packaging/homebrew/actra.rb"
 
 sed \
   -e "s|@VERSION@|$version|g" \

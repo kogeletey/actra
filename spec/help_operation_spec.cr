@@ -3,16 +3,16 @@ require "http/server"
 require "file_utils"
 
 require "./support/tmpdir"
-require "../src/wacli/cli"
-require "../src/wacli/xdg"
+require "../src/actra/cli"
+require "../src/actra/xdg"
 
 private def with_temp_root(&)
   SpecTmpdir.with do |root|
-    ENV["WACLI_TEST_ROOT"] = root
+    ENV["ACTRA_TEST_ROOT"] = root
     begin
       yield root
     ensure
-      ENV.delete("WACLI_TEST_ROOT")
+      ENV.delete("ACTRA_TEST_ROOT")
     end
   end
 end
@@ -48,7 +48,7 @@ private def start_server : Tuple(String, HTTP::Server)
 
   server = HTTP::Server.new do |ctx|
     case ctx.request.path
-    when "/.well-known/wacli.json", "/.well-know/wacli.json"
+    when "/.well-known/actra.json", "/.well-know/actra.json"
       ctx.response.status_code = 404
     when "/openapi.json"
       ctx.response.content_type = "application/json"

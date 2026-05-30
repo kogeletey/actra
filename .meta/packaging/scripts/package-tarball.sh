@@ -29,16 +29,16 @@ case "$arch" in
   aarch64|arm64) arch="arm64" ;;
 esac
 
-bin_path="bin/wacli-${version}-${os}-${arch}-${link_mode}"
+bin_path="bin/actra-${version}-${os}-${arch}-${link_mode}"
 [[ -x "$bin_path" ]] || { echo "missing binary: $bin_path" >&2; exit 1; }
 
-name="wacli-${version}-${os}-${arch}-${link_mode}"
+name="actra-${version}-${os}-${arch}-${link_mode}"
 tmp_dir="dist/$name"
 archive="dist/${name}.tar.gz"
 
 rm -rf "$tmp_dir"
 mkdir -p "$tmp_dir"
-cp "$bin_path" "$tmp_dir/wacli"
+cp "$bin_path" "$tmp_dir/actra"
 cp LICENSE README.md "$tmp_dir/"
 
 tar -C dist -czf "$archive" "$name"
