@@ -5,11 +5,9 @@ require "./support/tmpdir"
 require "../src/actra/config"
 
 describe Actra::Config do
-  it "does not model claude and codex as default Lefine actors" do
-    server = Actra::Config.default.server("lefine.pro").not_nil!
-
-    server.actor_for_command("@claude").should be_nil
-    server.actor_for_command("@codex").should be_nil
+  it "does not ship default server actors" do
+    Actra::Config.default.server("lefine.pro").should be_nil
+    Actra::Config.default.actor_for_command("@code").should be_nil
   end
 
   it "loads base and server actor blocks from RCL without a root wrapper" do
@@ -66,6 +64,7 @@ describe Actra::Config do
           kind = "org_todo"
           org_todo_path = "$HOME/org/tasks.org"
           category = "Notes"
+          executor = "alice"
         end
       end
     ))
@@ -77,6 +76,7 @@ describe Actra::Config do
     action.kind.should eq("org_todo")
     action.org_todo_path.should eq(File.join(Actra::Xdg.home, "org", "tasks.org"))
     action.category.should eq("Notes")
+    action.executor.should eq("alice")
   end
 
   it "loads permissions configuration from RCL" do
@@ -104,19 +104,51 @@ describe Actra::Config do
     cfg.permissions.tools.first.deny.should eq(["/etc/**"])
   end
 
-  it "loads config.rcl from .config/astra before the legacy actra path" do
+  it "loads config.rcl from .config/actra before the legacy astra path" do
     SpecTmpdir.with do |root|
       ENV["ACTRA_TEST_ROOT"] = root
       begin
         FileUtils.mkdir_p(Actra::Xdg.config_dir)
-        FileUtils.mkdir_p(Actra::Xdg.astra_config_dir)
-        File.write(Actra::Xdg.config_path, %(base do\n  default_server = "legacy.example"\nend\n))
-        File.write(Actra::Xdg.astra_config_path, %(base do\n  default_server = "astra.example"\nend\n))
+        FileUtils.mkdir_p(Actra::Xdg.legacy_astra_config_dir)
+        File.write(Actra::Xdg.config_path, %(base do\n  default_server = "actra.example"\nend\n))
+        File.write(Actra::Xdg.legacy_astra_config_path, %(base do\n  default_server = "legacy.example"\nend\n))
 
-        Actra::Config.load.default_server.should eq("astra.example")
+        Actra::Config.load.default_server.should eq("actra.example")
       ensure
         ENV.delete("ACTRA_TEST_ROOT")
       end
     end
+  end
+
+  it "parses ForgeFed providers and agent action provider defaults" do
+    cfg = Actra::Config.load_rcl(%(
+      provider "remote-code" do
+        api = "forgefed"
+        server = "lefine.pro"
+        actor = "code"
+        default_model = "ticket"
+      end
+
+      at do
+        action "review" do
+          kind = "agent"
+          label = "Review"
+          provider = "remote-code"
+          model = "ticket"
+          prompt_modes = ["review"]
+        end
+      end
+    ))
+
+    provider = cfg.providers["remote-code"]
+    provider.api.should eq("forgefed")
+    provider.forgefed_server.should eq("lefine.pro")
+    provider.forgefed_actor.should eq("code")
+
+    action = cfg.at.menu_actions.first
+    action.kind.should eq("agent")
+    action.provider.should eq("remote-code")
+    action.model.should eq("ticket")
+    action.prompt_modes.should eq(["review"])
   end
 end

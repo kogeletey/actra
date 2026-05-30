@@ -108,7 +108,13 @@ module Actra
 
     private def self.run_at_file_action_menu(path : String, stdin : IO, stdout : IO, stderr : IO) : Int32
       open_action = editor_action_label(path)
-      actions = ["insert @path in console", "open in editor", "copy absolute path", "insert absolute path in console", "run executable", "go to folder"]
+      absolute = File.expand_path(path)
+      directory = File.directory?(absolute)
+      actions = ["insert @path in console", "open in editor", "copy absolute path", "insert absolute path in console", "go to folder"]
+      unless directory
+        actions.insert(4, "run executable")
+        actions << "delete file"
+      end
       if open_action != "open in editor"
         actions.insert(1, open_action)
       end
@@ -125,7 +131,9 @@ module Actra
       when "run executable"
         run_executable_file(path, stdin, stdout, stderr)
       when "go to folder"
-        shell_cd(File.dirname(File.expand_path(path)), stdout)
+        shell_cd(directory ? absolute : File.dirname(absolute), stdout)
+      when "delete file"
+        delete_file(path, stdout, stderr)
       else
         stderr.puts "no action selected"
         1
@@ -168,6 +176,21 @@ module Actra
 
       status = Process.run(absolute, [] of String, input: stdin, output: stdout, error: stderr)
       status.exit_code
+    end
+
+    private def self.delete_file(path : String, stdout : IO, stderr : IO) : Int32
+      absolute = File.expand_path(path)
+      unless File.file?(absolute)
+        stderr.puts "not a file: #{absolute}"
+        return 1
+      end
+
+      File.delete(absolute)
+      stdout.puts "deleted: #{absolute}"
+      0
+    rescue ex
+      stderr.puts ex.message
+      1
     end
 
     private def self.editor_action_label(path : String) : String
@@ -261,7 +284,7 @@ module Actra
         when "actors", "actor"
           actor_completion_candidates
         when "files", "file"
-        Interactive::PickerTui.file_context_candidates(prefix)
+          Interactive::PickerTui.file_context_candidates(prefix)
         else
           stderr.puts "unknown completion kind: #{kind}"
           return 1
@@ -280,7 +303,7 @@ module Actra
     end
 
     private def self.at_built_in_action_candidates : Array(String)
-      ["assistant", "agent", "run", "background", "remote", "container", "stats"]
+      ["agent", "run", "background", "remote", "container", "stats"]
     end
 
     private def self.action_completion_candidates : Array(String)
@@ -294,7 +317,7 @@ module Actra
 
     private def self.actor_completion_candidates : Array(String)
       cfg = Config.load
-      commands = ["@", "@assistant", "@agent", "@run", "@background", "@remote", "@container", "@stats", "@claude", "@codex"] of String
+      commands = ["@"] of String
       cfg.servers.each_value do |server|
         server.actors.each { |actor| commands << actor.command }
       end
@@ -1129,8 +1152,9 @@ module Actra
 
     private def self.run_launch(argv : Array(String), stdin : IO, stdout : IO, stderr : IO) : Int32
       mode = nil.as(String?)
-      remote = ENV["ACTRA_LAUNCH_REMOTE"]? || "@code"
+      remote = ENV["ACTRA_LAUNCH_REMOTE"]? || "@remote@lefine.pro"
       image = ENV["ACTRA_LAUNCH_IMAGE"]? || ENV["ACTRA_CONTAINER_IMAGE"]?
+      runtime = ENV["ACTRA_LAUNCH_RUNTIME"]? || ENV["ACTRA_CONTAINER_RUNTIME"]? || "docker"
       dry_run = false
       command_argv = [] of String
       after_separator = false
@@ -1161,6 +1185,12 @@ module Actra
         elsif arg.starts_with?("--image=")
           image = arg.split("=", 2)[1]
           i += 1
+        elsif arg == "--runtime"
+          runtime = argv[i + 1]? || raise "missing value for --runtime"
+          i += 2
+        elsif arg.starts_with?("--runtime=")
+          runtime = arg.split("=", 2)[1]
+          i += 1
         elsif arg == "--dry-run"
           dry_run = true
           i += 1
@@ -1178,7 +1208,7 @@ module Actra
       when "remote", "remote-lefine", "lefine"
         run_launch_remote(remote, tool, args, stdin, stdout, stderr, dry_run)
       when "container"
-        run_launch_container(image, tool, args, stdin, stdout, stderr, dry_run)
+        run_launch_container(image, runtime, tool, args, stdin, stdout, stderr, dry_run)
       when "background", "bg"
         run_launch_background(tool, args, stdout, stderr, dry_run)
       when "assistant", "agent"
@@ -1206,9 +1236,27 @@ module Actra
       run_launch(argv, stdin, stdout, stderr)
     end
 
-    private def self.run_at_action(action : AtMenuActionConfig, text : String, stdout : IO, stderr : IO) : Int32
+    private def self.agent_action_argv(action : AtMenuActionConfig, argv : Array(String)) : Array(String)
+      result = [] of String
+      if provider = action.provider
+        result += ["--provider", provider] unless argv.includes?("--provider")
+      end
+
+      if model = action.model
+        result += ["--model", model] unless argv.includes?("--model")
+      end
+
+      unless action.prompt_modes.empty? || argv.includes?("--prompt") || argv.includes?("--prompt-mode")
+        action.prompt_modes.each { |mode| result += ["--prompt", mode] }
+      end
+      result + argv
+    end
+
+    private def self.run_at_action(action : AtMenuActionConfig, text : String, stdin : IO, stdout : IO, stderr : IO) : Int32
       return missing_action_text(stderr) if text.empty?
       case action.kind
+      when "agent"
+        run_agent(parse_agent_options(agent_action_argv(action, [text])), stdin, stdout, stderr)
       when "org_todo"
         create_org_todo(action, text, stdout)
       else
@@ -1230,45 +1278,53 @@ module Actra
       raise "empty TODO text" if clean.empty?
 
       FileUtils.mkdir_p(File.dirname(path))
-      append_org_todo(path, action.category, clean)
+      append_org_todo(path, action.category, action.executor, clean)
       stdout.puts "created TODO: #{path}"
       0
     end
 
-    private def self.append_org_todo(path : String, category : String?, text : String) : Nil
+    private def self.append_org_todo(path : String, category : String?, executor : String?, text : String) : Nil
       category_name = category
       if category_name.nil? || category_name.empty?
-        File.open(path, "a") { |file| file.puts "* TODO #{text}" }
+        File.open(path, "a") { |file| write_org_todo(file, "*", text, executor) }
         return
       end
 
       heading = "* #{category_name}"
-      todo = "** TODO #{text}"
       if File.exists?(path)
         existing = File.read(path)
         if existing.lines.any? { |line| line.strip == heading }
           File.open(path, "a") do |file|
             file.puts unless existing.ends_with?("\n")
-            file.puts todo
+            write_org_todo(file, "**", text, executor)
           end
         else
           File.open(path, "a") do |file|
             file.puts unless existing.empty? || existing.ends_with?("\n")
             file.puts heading
-            file.puts todo
+            write_org_todo(file, "**", text, executor)
           end
         end
       else
         File.open(path, "w") do |file|
           file.puts heading
-          file.puts todo
+          write_org_todo(file, "**", text, executor)
         end
       end
     end
 
+    private def self.write_org_todo(file : IO, stars : String, text : String, executor : String?) : Nil
+      file.puts "#{stars} TODO #{text}"
+      return if executor.nil? || executor.empty?
+
+      file.puts ":PROPERTIES:"
+      file.puts ":EXECUTOR: #{executor}"
+      file.puts ":END:"
+    end
+
     private def self.at_search_invocation?(argv : Array(String)) : Bool
       return true if argv.empty?
-      !argv.any? { |arg| arg == "--" || arg == "--mode" || arg.starts_with?("--mode=") || arg == "--remote" || arg.starts_with?("--remote=") || arg == "--image" || arg.starts_with?("--image=") || arg == "--dry-run" }
+      !argv.any? { |arg| arg == "--" || arg == "--mode" || arg.starts_with?("--mode=") || arg == "--remote" || arg.starts_with?("--remote=") || arg == "--image" || arg.starts_with?("--image=") || arg == "--runtime" || arg.starts_with?("--runtime=") || arg == "--dry-run" }
     end
 
     private def self.run_at_search(argv : Array(String), stdin : IO, stdout : IO, stderr : IO) : Int32
@@ -1299,12 +1355,12 @@ module Actra
         return run_at_selected_action(action, argv[1..], stdin, stdout, stderr)
       end
 
+      unless query.empty?
+        return run_agent(parse_agent_options(argv), stdin, stdout, stderr)
+      end
+
       matches = matching_at_entries(entries, query)
       if matches.empty?
-        if local_command_invocation?(argv)
-          return run_launch_local(argv[0], argv[1..], stdin, stdout, stderr, false)
-        end
-
         stderr.puts "no @ results"
         return 1
       end
@@ -1347,13 +1403,11 @@ module Actra
 
       preview =
         case normalized
-        when "code"
-          query.empty? ? "missing task" : command_line(["@code", query])
-        when "agent"
-          query.empty? ? "actra agent" : "actra agent #{command_line(argv)}"
         when "stats"
           command = query.empty? ? "actra @ --action stats" : "actra @ --action stats #{command_line(argv)}"
           "show #{command}"
+        when "agent"
+          query.empty? ? "missing task" : "actra agent #{command_line(argv)}"
         else
           query.empty? ? "missing command" : command_line(argv)
         end
@@ -1364,27 +1418,16 @@ module Actra
       1
     end
 
-    private def self.local_command_invocation?(argv : Array(String)) : Bool
-      command = argv[0]?
-      return false unless command
-      return false if command.empty? || command.starts_with?("@")
-      !!Process.find_executable(command)
-    end
-
     private def self.run_at_selected_action(action : String, argv : Array(String), stdin : IO, stdout : IO, stderr : IO) : Int32
       normalized = normalize_at_action(action)
       raise "unknown @ action: #{action}" unless at_action?(normalized)
 
       case normalized
-      when "code"
-        task = argv.join(" ").strip
-        return missing_action_text(stderr) if task.empty?
-        Dispatch.run(["--command", "@code", "--", task], stdin, stdout, stderr)
       when "agent"
         task = argv.join(" ").strip
         return missing_action_text(stderr) if task.empty?
-        return run_agent(parse_agent_options(argv), stdin, stdout, stderr)
-      when "assistant", "run", "background", "remote", "container"
+        run_agent(parse_agent_options(argv), stdin, stdout, stderr)
+      when "run", "background", "remote", "container"
         run_launch(["--mode", normalized] + argv, stdin, stdout, stderr)
       when "stats"
         run_at_session_stats(argv, stdout, stderr)
@@ -1392,7 +1435,7 @@ module Actra
         if action_config = at_menu_action?(action)
           task = argv.join(" ").strip
           return missing_action_text(stderr) if task.empty?
-          return run_at_action(action_config, task, stdout, stderr)
+          return run_at_action(action_config, task, stdin, stdout, stderr)
         end
         stderr.puts "unsupported @ action: #{action}"
         1
@@ -1473,7 +1516,21 @@ module Actra
       when "action"
         action = Config.load.at.menu_actions.find { |candidate| candidate.label == entry.value }
         raise "unknown @ action: #{entry.value}" unless action
-        run_at_action(action, text, stdout, stderr)
+        run_at_action(action, text, stdin, stdout, stderr)
+      when "agent"
+        if text.empty?
+          stdout.puts entry.value
+          0
+        else
+          run_agent(parse_agent_options(["--provider", entry.value, text]), stdin, stdout, stderr)
+        end
+      when "model"
+        if text.empty?
+          stdout.puts entry.value
+          0
+        else
+          run_agent(parse_agent_options(["--model", entry.value, text]), stdin, stdout, stderr)
+        end
       when "file"
         run_at_file_action_menu(entry.value, stdin, stdout, stderr)
       else
@@ -1492,7 +1549,9 @@ module Actra
     end
 
     private def self.at_launcher_entries : Array(AtLauncherEntry)
-      actor_completion_candidates.map { |actor| AtLauncherEntry.new("actor", actor, at_launcher_row("actor", actor)) } +
+      actor_completion_candidates.reject { |actor| actor == "@" }.map { |actor| AtLauncherEntry.new("actor", actor, at_launcher_row("actor", actor)) } +
+        agent_launcher_entries +
+        model_launcher_entries +
         Config.load.at.menu_actions.map { |action| AtLauncherEntry.new("action", action.label, at_launcher_row("action", action.label)) } +
         Interactive::PickerTui.file_context_candidates.map do |token|
           path = token.starts_with?("@") ? token[1..] : token
@@ -1504,17 +1563,49 @@ module Actra
       "#{kind.ljust(7)} #{value}"
     end
 
+    private def self.agent_launcher_entries : Array(AtLauncherEntry)
+      cfg = Config.load
+      cfg.providers.keys.sort.map do |provider|
+        label = provider == cfg.default_provider ? "#{provider} (default)" : provider
+        AtLauncherEntry.new("agent", provider, at_launcher_row("agent", label))
+      end
+    end
+
+    private def self.model_launcher_entries : Array(AtLauncherEntry)
+      cfg = Config.load
+      default_provider = cfg.provider
+      default_model = cfg.default_model || default_provider.try(&.default_model) || ENV["ACTRA_MODEL"]? || Config::DEFAULT_MODEL
+      models = [Config::DEFAULT_MODEL, default_model] of String
+
+      cfg.providers.each_value do |provider|
+        if provider.models.empty?
+          if model = provider.default_model
+            models << model
+          end
+        else
+          provider.models.each_key { |model| models << model }
+        end
+      end
+
+      models.uniq.sort.map do |model|
+        label = model == default_model ? "#{model} (default)" : model
+        AtLauncherEntry.new("model", model, at_launcher_row("model", label))
+      end
+    end
+
     private def self.at_entries_for_mode(mode : String) : Array(AtLauncherEntry)
       normalized = normalize_at_mode(mode)
       entries = at_launcher_entries
       case normalized
       when "file"
         entries.select { |entry| entry.kind == "file" }
-      when "code"
-        entries.select { |entry| code_search_entry?(entry) }
       when "actions"
         entries.select { |entry| entry.kind == "action" }
-      when "assistant", "run", "background", "remote", "container"
+      when "agents", "agent"
+        entries.select { |entry| entry.kind == "agent" }
+      when "models", "model"
+        entries.select { |entry| entry.kind == "model" }
+      when "run", "background", "remote", "container"
         [] of AtLauncherEntry
       else
         entries
@@ -1539,12 +1630,12 @@ module Actra
     end
 
     private def self.launch_mode?(mode : String) : Bool
-      {"assistant", "run", "background", "remote", "container"}.includes?(normalize_at_mode(mode))
+      {"run", "background", "remote", "container"}.includes?(normalize_at_mode(mode))
     end
 
     private def self.at_action?(action : String) : Bool
       normalized = normalize_at_action(action)
-      return true if {"code", "assistant", "agent", "run", "background", "remote", "container", "stats"}.includes?(normalized)
+      return true if {"agent", "run", "background", "remote", "container", "stats"}.includes?(normalized)
       !!at_menu_action?(action)
     end
 
@@ -1563,31 +1654,13 @@ module Actra
       end
     end
 
-    private def self.code_search_entry?(entry : AtLauncherEntry) : Bool
-      case entry.kind
-      when "actor"
-        return true if {"@code", "@codex"}.includes?(entry.value)
-        actor = Config.load.actor_for_command(entry.value).try { |route| route[1] }
-        return false unless actor
-        actor.name.downcase.includes?("code") || actor.work_type.downcase.includes?("code")
-      when "file"
-        code_file_path?(entry.value)
-      else
-        false
-      end
-    end
-
     private def self.at_shorthand_action(token : String?) : String?
       return nil unless token
       return nil unless token.starts_with?("@")
       action = token[1..]
       return nil if action.empty?
-      return nil unless {"assistant", "agent", "run", "background", "remote", "container", "statistics", "stats"}.includes?(action)
+      return nil unless {"agent", "run", "background", "remote", "container", "statistics", "stats"}.includes?(action)
       normalize_at_action(action)
-    end
-
-    private def self.code_file_path?(path : String) : Bool
-      {".cr", ".rb", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".c", ".h", ".cpp", ".hpp", ".java", ".kt", ".swift", ".ml", ".mli", ".sh", ".bash", ".zsh", ".fish"}.includes?(File.extname(path))
     end
 
     private def self.selected_at_entry(argv : Array(String), entries : Array(AtLauncherEntry)) : AtLauncherEntry?
@@ -1602,6 +1675,10 @@ module Actra
           first == "@#{entry.value}" || first == entry.value
         when "action"
           entry.value == first
+        when "agent"
+          entry.value == first || first == "agent:#{entry.value}"
+        when "model"
+          entry.value == first || first == "model:#{entry.value}"
         else
           false
         end
@@ -1631,17 +1708,52 @@ module Actra
       Dispatch.run(dispatch_args + ["--", content], stdin, stdout, stderr)
     end
 
-    private def self.run_launch_container(image : String?, tool : String, args : Array(String), stdin : IO, stdout : IO, stderr : IO, dry_run : Bool) : Int32
+    private def self.run_launch_container(image : String?, runtime : String, tool : String, args : Array(String), stdin : IO, stdout : IO, stderr : IO, dry_run : Bool) : Int32
       container_image = image || raise "container mode requires --image or ACTRA_LAUNCH_IMAGE"
-      docker_args = ["run", "--rm", "-i", "-v", "#{Dir.current}:#{Dir.current}", "-w", Dir.current, container_image, tool] + args
+      runtime_command = container_runtime_command(runtime)
+      unless dry_run || Process.find_executable(runtime_command)
+        raise "container runtime not found: #{runtime_command} (set --runtime, ACTRA_LAUNCH_RUNTIME, or ACTRA_CONTAINER_RUNTIME)"
+      end
+
+      container_args = ["run", "--rm", "-i", "-v", "#{Dir.current}:#{Dir.current}", "-w", Dir.current, container_image, tool] + args
 
       if dry_run
-        stdout.puts command_line(["docker"] + docker_args)
+        stdout.puts command_line([runtime_command] + container_args)
         return 0
       end
 
-      status = Process.run("docker", docker_args, input: stdin, output: stdout, error: stderr)
+      status = Process.run(runtime_command, container_args, input: stdin, output: stdout, error: stderr)
+      if status.exit_code != 0
+        stderr.puts container_runtime_hint(runtime_command)
+      end
       status.exit_code
+    end
+
+    private def self.container_runtime_command(runtime : String) : String
+      normalized = runtime.strip.downcase
+      raise "container runtime cannot be empty" if normalized.empty?
+
+      case normalized
+      when "docker", "podman", "nerdctl"
+        normalized
+      when "containerd"
+        "nerdctl"
+      else
+        runtime.strip
+      end
+    end
+
+    private def self.container_runtime_hint(runtime : String) : String
+      case runtime
+      when "docker"
+        "container mode could not run docker. Check access to /var/run/docker.sock or use --runtime podman, --runtime nerdctl, or ACTRA_CONTAINER_RUNTIME."
+      when "podman"
+        "container mode could not run podman. Check podman is installed and the current user can run containers."
+      when "nerdctl"
+        "container mode could not run nerdctl/containerd. Check nerdctl is installed and containerd is running."
+      else
+        "container mode could not run #{runtime}. Check the runtime command and permissions."
+      end
     end
 
     private def self.run_launch_assistant(tool : String, args : Array(String), stdin : IO, stdout : IO, stderr : IO, dry_run : Bool) : Int32
@@ -1738,7 +1850,7 @@ module Actra
     end
 
     private def self.ensure_default_config : Nil
-      return if File.exists?(Xdg.astra_config_path) || File.exists?(Xdg.config_path)
+      return if File.exists?(Xdg.config_path) || File.exists?(Xdg.legacy_astra_config_path)
 
       path = Xdg.config_write_path
       FileUtils.mkdir_p(File.dirname(path))
@@ -1761,6 +1873,8 @@ module Actra
         Config.load
         stdout.puts "ok"
         0
+      when "migrate", "update"
+        migrate_config(stdout, stderr)
       when "print"
         cfg = Config.load
         stdout.puts "config: #{Xdg.config_load_path}"
@@ -1784,9 +1898,37 @@ module Actra
         stdout.puts "at.menu_actions: #{cfg.at.menu_actions.map(&.name).join(",")}"
         0
       else
-        stderr.puts "usage: actra config <init|validate|print>"
+        stderr.puts "usage: actra config <init|validate|print|migrate|update>"
         1
       end
+    rescue ex
+      stderr.puts ex.message
+      1
+    end
+
+    private def self.migrate_config(stdout : IO, stderr : IO) : Int32
+      current = Xdg.config_path
+      legacy = Xdg.legacy_astra_config_path
+
+      if File.exists?(current)
+        Config.load
+        stdout.puts "config already current: #{current}"
+        return 0
+      end
+
+      unless File.exists?(legacy)
+        FileUtils.mkdir_p(File.dirname(current))
+        File.write(current, default_rcl_config)
+        Config.load
+        stdout.puts "created: #{current}"
+        return 0
+      end
+
+      FileUtils.mkdir_p(File.dirname(current))
+      File.write(current, File.read(legacy))
+      Config.load
+      stdout.puts "migrated: #{legacy} -> #{current}"
+      0
     rescue ex
       stderr.puts ex.message
       1
@@ -1837,7 +1979,7 @@ module Actra
 
       Commands:
         actra activate <bash|zsh> [--install]
-        actra config <init|validate|print>
+        actra config <init|validate|print|migrate|update>
         actra dispatch --command @name|@actor@domain -- [args...]
         actra query @<tool_ref> [help|docs|launch] [args...]
         actra launch [--mode background|assistant|run|remote-lefine|container] @<tool_ref> [args...]
@@ -1873,12 +2015,11 @@ module Actra
     private def self.default_rcl_config : String
       <<-RCL
       base do
-        default_server = "lefine.pro"
         db_path = "$HOME/.cache/actra/actra.db"
         install_dir = "$HOME/.local/bin"
         session_dir = "$HOME/.cache/actra/sessions"
         default_provider = "openai"
-        default_model = "gpt-4.1-mini"
+        default_model = "@auto@lefine.pro"
       end
 
       uri_schemes do
@@ -1937,40 +2078,6 @@ module Actra
       filetype "images" do
         patterns = ["*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp"]
         editor = "xdg-open"
-      end
-
-      server "lefine.pro" do
-        base_url = "https://lefine.pro"
-        actor_id = "https://lefine.pro/actor/shell"
-        inbox = "/inbox"
-        outbox = "/outbox"
-
-        http_signature do
-          key_id = "https://lefine.pro/actor/shell#main-key"
-          private_key_path = "$HOME/.config/actra/keys/shell.pem"
-          algorithm = "rsa-sha256"
-        end
-
-        actor "code" do
-          command = "@code"
-          inbox = "/inbox/code"
-          outbox = "/outbox/code"
-          work_type = "code"
-        end
-
-        actor "plan" do
-          command = "@plan"
-          inbox = "/inbox/plan"
-          outbox = "/outbox/plan"
-          work_type = "plan"
-        end
-
-        actor "search" do
-          command = "@search"
-          inbox = "/inbox/search"
-          outbox = "/outbox/search"
-          work_type = "search"
-        end
       end
       RCL
     end

@@ -48,7 +48,7 @@ module Actra
       @tool : String,
       @allow : Array(String) = [] of String,
       @ask : Array(String) = [] of String,
-      @deny : Array(String) = [] of String
+      @deny : Array(String) = [] of String,
     )
     end
   end
@@ -63,7 +63,7 @@ module Actra
       @mode : PermissionMode = PermissionMode::Standard,
       @sandbox : Bool = false,
       @tools : Array(ToolPermissionConfig) = [] of ToolPermissionConfig,
-      @doom_loop_threshold : Int32 = 8
+      @doom_loop_threshold : Int32 = 8,
     )
     end
 
@@ -86,8 +86,8 @@ module Actra
     def matches?(request : PermissionRequest) : Bool
       return false unless tool == request.tool
       return true if matches_pattern?(pattern, request.input_key)
-      return true if request.path && matches_pattern?(pattern, request.path.not_nil!)
-      return true if request.command && matches_pattern?(pattern, request.command.not_nil!)
+      return true if (path = request.path) && matches_pattern?(pattern, path)
+      return true if (command = request.command) && matches_pattern?(pattern, command)
       false
     end
 
@@ -123,7 +123,7 @@ module Actra
       @path : String? = nil,
       @command : String? = nil,
       @reason : String? = nil,
-      @count : Int32? = nil
+      @count : Int32? = nil,
     )
     end
 
@@ -153,7 +153,7 @@ module Actra
       @ask_input : IO = STDIN,
       @ask_output : IO = STDERR,
       @request_callback : Proc(PermissionRequest, Nil)? = nil,
-      @session_denylist : Array(PermissionAllowEntry) = [] of PermissionAllowEntry
+      @session_denylist : Array(PermissionAllowEntry) = [] of PermissionAllowEntry,
     )
       @mode = mode_override || @config.mode
       @sandbox = sandbox_override.nil? ? @config.sandbox : sandbox_override.not_nil!
@@ -255,8 +255,8 @@ module Actra
     private def matches_any?(patterns : Array(String), request : PermissionRequest) : Bool
       patterns.any? do |pattern|
         next true if matches?(pattern, request.input_key)
-        next true if request.path && matches?(pattern, request.path.not_nil!)
-        next true if request.command && matches?(pattern, request.command.not_nil!)
+        next true if (path = request.path) && matches?(pattern, path)
+        next true if (command = request.command) && matches?(pattern, command)
         false
       end
     end

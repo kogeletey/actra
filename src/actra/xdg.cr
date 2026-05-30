@@ -28,7 +28,7 @@ module Actra
       File.join(config_home, "actra")
     end
 
-    def self.astra_config_dir : String
+    def self.legacy_astra_config_dir : String
       File.join(config_home, "astra")
     end
 
@@ -44,16 +44,16 @@ module Actra
       File.join(config_dir, "config.rcl")
     end
 
-    def self.astra_config_path : String
-      File.join(astra_config_dir, "config.rcl")
+    def self.legacy_astra_config_path : String
+      File.join(legacy_astra_config_dir, "config.rcl")
     end
 
     def self.config_load_path : String
-      File.exists?(astra_config_path) ? astra_config_path : config_path
+      File.exists?(config_path) || !File.exists?(legacy_astra_config_path) ? config_path : legacy_astra_config_path
     end
 
     def self.config_write_path : String
-      astra_config_path
+      config_path
     end
 
     def self.lock_path : String

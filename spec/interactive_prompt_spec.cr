@@ -66,6 +66,48 @@ describe Actra::Interactive::PickerTui do
     end
   end
 
+  it "matches file context candidates with tokenized fuzzy search" do
+    SpecTmpdir.with do |root|
+      FileUtils.mkdir_p(File.join(root, "src", "actra"))
+      File.write(File.join(root, "src", "actra", "cli.cr"), "")
+
+      Dir.cd(root) do
+        candidates = Actra::Interactive::PickerTui.file_context_candidates("acr cli")
+        candidates.should contain("@src/actra/cli.cr")
+      end
+    end
+  end
+
+  it "sorts file mode candidates by query relevance with folders before files" do
+    SpecTmpdir.with do |root|
+      FileUtils.mkdir_p(File.join(root, "src", "actra"))
+      FileUtils.mkdir_p(File.join(root, "src", "archive"))
+      File.write(File.join(root, "src", "actra", "cli.cr"), "")
+      File.write(File.join(root, "src", "actra.cr"), "")
+      File.write(File.join(root, "src", "archive", "cli.md"), "")
+
+      Dir.cd(root) do
+        candidates = Actra::Interactive::PickerTui.file_context_candidates("src")
+
+        candidates[0].should eq("@src")
+        candidates.index("@src/actra").not_nil!.should be < candidates.index("@src/actra.cr").not_nil!
+      end
+    end
+  end
+
+  it "includes empty folders in file mode candidates" do
+    SpecTmpdir.with do |root|
+      FileUtils.mkdir_p(File.join(root, "docs", "empty"))
+
+      Dir.cd(root) do
+        candidates = Actra::Interactive::PickerTui.file_context_candidates("docs")
+
+        candidates.should contain("@docs")
+        candidates.should contain("@docs/empty")
+      end
+    end
+  end
+
   it "opens the file submenu before attaching a selected non-executable file" do
     with_fake_fzf("insert @path in console") do
       stdout = IO::Memory.new
@@ -78,12 +120,24 @@ describe Actra::Interactive::PickerTui do
     end
   end
 
-  it "starts @ file search with the provided query" do
+  it "changes into the selected folder from the file submenu" do
+    with_fake_fzf("go to folder", false, "file    src") do |root, _bin|
+      stdout = IO::Memory.new
+      stderr = IO::Memory.new
+
+      code = Actra::CLI.run(["@", "@src"], IO::Memory.new, stdout, stderr)
+
+      code.should eq(0)
+      stdout.to_s.should eq("cd '#{File.join(root, "src")}'\n")
+    end
+  end
+
+  it "starts @ file search from mode preview with the provided query" do
     with_fake_fzf("insert @path in console") do |root, _bin|
       stdout = IO::Memory.new
       stderr = IO::Memory.new
 
-      code = Actra::CLI.run(["@", "demo"], IO::Memory.new, stdout, stderr)
+      code = Actra::CLI.run(["@", "--mode-preview", "file", "demo"], IO::Memory.new, stdout, stderr)
 
       code.should eq(0)
       stdout.to_s.should contain("file    src/demo.cr")
@@ -101,12 +155,19 @@ describe Actra::Interactive::PickerTui do
 
       stdout = IO::Memory.new
       stderr = IO::Memory.new
-      Actra::CLI.run(["@", "--action-preview", "code", "demo"], IO::Memory.new, stdout, stderr).should eq(0)
-      stdout.to_s.should contain("action  code: '@code' 'demo'")
+      Actra::CLI.run(["@", "--mode-preview", "agents", "olla"], IO::Memory.new, stdout, stderr).should eq(0)
+      stdout.to_s.should contain("agent   ollama")
+      stdout.to_s.should_not contain("model   ")
+      stdout.to_s.should_not contain("file    ")
+
+      stdout = IO::Memory.new
+      stderr = IO::Memory.new
+      Actra::CLI.run(["@", "--action-preview", "code", "demo"], IO::Memory.new, stdout, stderr).should eq(1)
+      stderr.to_s.should contain("unknown @ action: code")
       stdout = IO::Memory.new
       stderr = IO::Memory.new
       Actra::CLI.run(["@", "--action-preview", "agent", "what do"], IO::Memory.new, stdout, stderr).should eq(0)
-      stdout.to_s.should contain("action  agent: actra agent")
+      stdout.to_s.should contain("action  agent: actra agent 'what do'")
 
       stdout = IO::Memory.new
       stderr = IO::Memory.new
@@ -127,14 +188,14 @@ describe Actra::Interactive::PickerTui do
 
     code = Actra::CLI.run(["@", "--action-preview", "assistant", "printf", "ok"], IO::Memory.new, stdout, stderr)
 
-    code.should eq(0)
-    stdout.to_s.should contain("action  assistant: 'printf' 'ok'")
+    code.should eq(1)
+    stderr.to_s.should contain("unknown @ action: assistant")
 
     stdout = IO::Memory.new
     stderr = IO::Memory.new
     code = Actra::CLI.run(["@", "--action-preview", "agent", "analyze", "logs"], IO::Memory.new, stdout, stderr)
     code.should eq(0)
-    stdout.to_s.should contain("action  agent: actra agent")
+    stdout.to_s.should contain("action  agent: actra agent 'analyze' 'logs'")
 
     stdout = IO::Memory.new
     code = Actra::CLI.run(["@", "--action-preview", "background", "printf", "ok"], IO::Memory.new, stdout, stderr)
@@ -147,6 +208,24 @@ describe Actra::Interactive::PickerTui do
     code = Actra::CLI.run(["@", "--action", "agent"], IO::Memory.new, stdout, stderr)
     code.should eq(1)
     stderr.to_s.should contain("missing text for action")
+
+    SpecTmpdir.with do |root|
+      old_root = ENV["ACTRA_TEST_ROOT"]?
+      ENV["ACTRA_TEST_ROOT"] = root
+      begin
+        stdout = IO::Memory.new
+        stderr = IO::Memory.new
+        code = Actra::CLI.run(["@", "--action", "agent", "--permission-state"], IO::Memory.new, stdout, stderr)
+        code.should eq(0)
+        JSON.parse(stdout.to_s)["mode"].as_s.should eq("standard")
+      ensure
+        if old_root
+          ENV["ACTRA_TEST_ROOT"] = old_root
+        else
+          ENV.delete("ACTRA_TEST_ROOT")
+        end
+      end
+    end
 
     with_fake_fzf do
       stdout = IO::Memory.new
@@ -176,6 +255,20 @@ describe Actra::Interactive::PickerTui do
 
       code.should eq(0)
       stdout.to_s.should eq("ran demo\n")
+    end
+  end
+
+  it "deletes a selected file from the file submenu" do
+    with_fake_fzf("delete file") do |root, _bin|
+      path = File.join(root, "src", "demo.cr")
+      stdout = IO::Memory.new
+      stderr = IO::Memory.new
+
+      code = Actra::CLI.run(["@", "@src/demo.cr"], IO::Memory.new, stdout, stderr)
+
+      code.should eq(0)
+      stdout.to_s.should contain("deleted: #{path}")
+      File.exists?(path).should be_false
     end
   end
 
@@ -288,7 +381,7 @@ describe Actra::Interactive::PickerTui do
     end
   end
 
-  it "uses @ as an actors, actions, and file attachment search entrypoint" do
+  it "uses @ as an agents, actions, and file attachment search entrypoint" do
     with_fake_fzf do |_root, _bin|
       stdout = IO::Memory.new
       stderr = IO::Memory.new
@@ -296,16 +389,54 @@ describe Actra::Interactive::PickerTui do
       code = Actra::CLI.run(["@"], IO::Memory.new, stdout, stderr)
 
       code.should eq(0)
-      stdout.to_s.should contain("actor   @code")
+      stdout.to_s.should contain("agent   openai (default)")
+      stdout.to_s.should contain("model   @auto@lefine.pro (default)")
+      stdout.to_s.should contain("agent   ollama")
       stdout.to_s.should_not contain("action  ")
       stdout.to_s.should contain("file    src/demo.cr")
     end
   end
 
+  it "runs bare @ text through the default agent" do
+    with_fake_fzf do |_root, _bin|
+      stdout = IO::Memory.new
+      stderr = IO::Memory.new
+
+      code = Actra::CLI.run(["@", "--permission-state"], IO::Memory.new, stdout, stderr)
+
+      code.should eq(0)
+      JSON.parse(stdout.to_s)["mode"].as_s.should eq("standard")
+    end
+  end
+
+  it "runs a selected agent provider from the @ launcher" do
+    with_fake_fzf do |_root, _bin|
+      stdout = IO::Memory.new
+      stderr = IO::Memory.new
+
+      code = Actra::CLI.run(["@", "ollama", "--permission-state"], IO::Memory.new, stdout, stderr)
+
+      code.should eq(0)
+      JSON.parse(stdout.to_s)["mode"].as_s.should eq("standard")
+    end
+  end
+
+  it "prints a selected model when no task text is provided" do
+    with_fake_fzf do |_root, _bin|
+      stdout = IO::Memory.new
+      stderr = IO::Memory.new
+
+      code = Actra::CLI.run(["@", "@auto@lefine.pro"], IO::Memory.new, stdout, stderr)
+
+      code.should eq(0)
+      stdout.to_s.should eq("@auto@lefine.pro\n")
+    end
+  end
+
   it "prints a selected actor when no task text is provided" do
     with_fake_fzf do |root, _bin|
-      FileUtils.mkdir_p(Actra::Xdg.astra_config_dir)
-      File.write(Actra::Xdg.astra_config_path, %(
+      FileUtils.mkdir_p(Actra::Xdg.config_dir)
+      File.write(Actra::Xdg.config_path, %(
         server "local" do
           base_url = "https://example.test"
           actor_id = "https://example.test/actor/shell"
@@ -331,29 +462,11 @@ describe Actra::Interactive::PickerTui do
     end
   end
 
-  it "dispatches task text to a selected actor" do
-    with_fake_fzf do |_root, bin|
-      codex = File.join(bin, "codex")
-      File.write(codex, <<-SH)
-        #!/bin/sh
-        printf '%s\\n' "$@"
-        SH
-      File.chmod(codex, 0o755)
-
-      stdout = IO::Memory.new
-      stderr = IO::Memory.new
-      code = Actra::CLI.run(["@", "@codex", "fix", "parser"], IO::Memory.new, stdout, stderr)
-
-      code.should eq(0)
-      stdout.to_s.should eq("exec\nfix parser\n")
-    end
-  end
-
   it "runs a configured action selected from the @ launcher" do
     with_fake_fzf do |root, _bin|
       todo_path = File.join(root, "notes", "tasks.org")
-      FileUtils.mkdir_p(Actra::Xdg.astra_config_dir)
-      File.write(Actra::Xdg.astra_config_path, %(
+      FileUtils.mkdir_p(Actra::Xdg.config_dir)
+      File.write(Actra::Xdg.config_path, %(
         at do
           action "notes" do
             label = "Add to Notes"
@@ -374,12 +487,37 @@ describe Actra::Interactive::PickerTui do
     end
   end
 
+  it "writes configured action executor metadata to org todos" do
+    with_fake_fzf do |root, _bin|
+      todo_path = File.join(root, "notes", "tasks.org")
+      FileUtils.mkdir_p(Actra::Xdg.config_dir)
+      File.write(Actra::Xdg.config_path, %(
+        at do
+          action "notes" do
+            label = "Add to Notes"
+            kind = "org_todo"
+            org_todo_path = "#{todo_path}"
+            category = "Notes"
+            executor = "alice"
+          end
+        end
+      ))
+
+      stdout = IO::Memory.new
+      stderr = IO::Memory.new
+      code = Actra::CLI.run(["@", "Add to Notes", "write", "release", "notes"], IO::Memory.new, stdout, stderr)
+
+      code.should eq(0)
+      File.read(todo_path).should eq("* Notes\n** TODO write release notes\n:PROPERTIES:\n:EXECUTOR: alice\n:END:\n")
+    end
+  end
+
   it "shows multiple configured @ actions and uses the selected one" do
     with_fake_fzf do |root, _bin|
       inbox_path = File.join(root, "notes", "inbox.org")
       project_path = File.join(root, "notes", "project.org")
-      FileUtils.mkdir_p(Actra::Xdg.astra_config_dir)
-      File.write(Actra::Xdg.astra_config_path, %(
+      FileUtils.mkdir_p(Actra::Xdg.config_dir)
+      File.write(Actra::Xdg.config_path, %(
         at do
           action "inbox" do
             label = "Add to Inbox"
@@ -410,8 +548,8 @@ describe Actra::Interactive::PickerTui do
   it "rejects configured actions without text" do
     with_fake_fzf do |root, _bin|
       todo_path = File.join(root, "notes", "tasks.org")
-      FileUtils.mkdir_p(Actra::Xdg.astra_config_dir)
-      File.write(Actra::Xdg.astra_config_path, %(
+      FileUtils.mkdir_p(Actra::Xdg.config_dir)
+      File.write(Actra::Xdg.config_path, %(
         at do
           action "inbox" do
             label = "Add to Inbox"
@@ -442,8 +580,8 @@ describe Actra::Interactive::PickerTui do
         SH
       File.chmod(editor, 0o755)
 
-      FileUtils.mkdir_p(Actra::Xdg.astra_config_dir)
-      File.write(Actra::Xdg.astra_config_path, %(
+      FileUtils.mkdir_p(Actra::Xdg.config_dir)
+      File.write(Actra::Xdg.config_path, %(
         filetype "crystal" do
           extensions = [".cr"]
           editor = "#{editor} --line {}"
@@ -474,8 +612,8 @@ describe Actra::Interactive::PickerTui do
       File.chmod(editor, 0o755)
 
       Dir.cd(root) do
-        FileUtils.mkdir_p(Actra::Xdg.astra_config_dir)
-        File.write(Actra::Xdg.astra_config_path, %(
+        FileUtils.mkdir_p(Actra::Xdg.config_dir)
+        File.write(Actra::Xdg.config_path, %(
           filetype "crystal" do
             extensions = [".cr"]
             editor = "#{editor} --line {}"

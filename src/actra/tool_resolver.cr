@@ -12,7 +12,7 @@ module Actra
   struct ToolResolved
     getter api_url : String
     getter manifest : Manifest
-    getter source : String  # "ain" | "manifest" | "fallback"
+    getter source : String # "ain" | "manifest" | "fallback"
 
     def initialize(@api_url : String, @manifest : Manifest, @source : String)
     end
@@ -58,9 +58,9 @@ module Actra
       end
 
       # Local directory fallback: ./dir/openapi.json or ./dir/swagger.json
-      if File.exists?(tool_ref) && File.directory?(tool_ref)
+      if File.directory?(tool_ref)
         ["#{tool_ref}/openapi.json", "#{tool_ref}/swagger.json"].each do |p|
-          next unless File.exists?(p)
+          next unless File.file?(p)
           OpenAPI::Loader.load_file(p)
           return ToolResolved.new(p, Manifest.new(p, false, nil, [] of Tuple(String, String), {} of String => String, nil, nil), "fallback")
         end
@@ -107,20 +107,20 @@ module Actra
 
     private def self.try_local_manifest(tool_ref : String, cfg : Config) : Manifest?
       # This only checks local sources already supported by Manifest.fetch_tool before it would go network.
-      if (local = Manifest.local_override_path(tool_ref)) && File.exists?(local)
+      if (local = Manifest.local_override_path(tool_ref)) && File.file?(local)
         return Manifest.parse(File.read(local))
       end
-      if File.exists?(tool_ref) && File.file?(tool_ref)
+      if File.file?(tool_ref)
         return Manifest.parse(File.read(tool_ref))
       end
-      if File.exists?(tool_ref) && File.directory?(tool_ref)
+      if File.directory?(tool_ref)
         [
           "#{tool_ref}/.well-known/actra.json",
           "#{tool_ref}/.well-know/actra.json",
           "#{tool_ref}/.well-known/wacli.json",
           "#{tool_ref}/.well-know/wacli.json",
         ].each do |p|
-          return Manifest.parse(File.read(p)) if File.exists?(p)
+          return Manifest.parse(File.read(p)) if File.file?(p)
         end
       end
       nil

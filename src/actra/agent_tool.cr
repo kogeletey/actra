@@ -62,8 +62,8 @@ module Actra
         builtin.each { |tool| specs[tool.name] = tool }
       end
       extension_tools.each { |tool| specs[tool.name] = tool }
-      if allowlist && !allowlist.not_nil!.empty?
-        allowed = allowlist.not_nil!.to_set
+      if allowlist && !allowlist.empty?
+        allowed = allowlist.to_set
         specs = specs.select { |name, _| allowed.includes?(name) }
       end
       new(specs, permission)

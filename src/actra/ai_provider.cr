@@ -5,6 +5,7 @@ require "uri"
 require "./config"
 require "./request"
 require "./agent_tool"
+require "./forgefed"
 
 module Actra
   struct AiRequest
@@ -33,7 +34,7 @@ module Actra
       provider = cfg.provider(provider_name)
       raise "unknown provider: #{provider_name || cfg.default_provider}" unless provider
 
-      model = model_name || cfg.default_model || provider.default_model || ENV["ACTRA_MODEL"]? || "gpt-4.1-mini"
+      model = model_name || cfg.default_model || provider.default_model || ENV["ACTRA_MODEL"]? || (provider.api == "forgefed" ? "ticket" : Config::DEFAULT_MODEL)
       payload = payload_for(provider, model, prompt, system_prompt, tools)
       AiRequest.new(provider.name, model, prompt, system_prompt, payload, tools)
     end
@@ -41,6 +42,7 @@ module Actra
     def self.complete(cfg : Config, request : AiRequest, api_key_override : String? = nil) : AiResponse
       provider = cfg.provider(request.provider)
       raise "unknown provider: #{request.provider}" unless provider
+      return complete_forgefed(cfg, provider, request) if provider.api == "forgefed"
 
       url =
         case provider.api
@@ -73,6 +75,33 @@ module Actra
       end
     end
 
+    private def self.complete_forgefed(cfg : Config, provider : AiProviderConfig, request : AiRequest) : AiResponse
+      server = cfg.server(provider.forgefed_server) || raise "unknown ForgeFed server for provider #{provider.name}: #{provider.forgefed_server || cfg.default_server}"
+      actor_ref = provider.forgefed_actor || provider.name
+      actor = server.actor_for_command(actor_ref) || server.actors.find { |candidate| candidate.name == actor_ref }
+      raise "unknown ForgeFed actor for provider #{provider.name}: #{actor_ref}" unless actor
+
+      delivery = ForgeFed.build_ticket_activity(server, actor, actor.name, request.prompt, sign: true)
+      response = ForgeFed.post(delivery)
+      body = response.body
+      unless response.status_code >= 200 && response.status_code < 300
+        raise "forgefed provider http #{response.status_code}: #{body}"
+      end
+
+      text = body.empty? ? "forgefed ticket delivered to #{actor.name}" : body
+      raw = JSON.parse(JSON.build do |json|
+        json.object do
+          json.field "provider", provider.name
+          json.field "server", server.name
+          json.field "actor", actor.name
+          json.field "status", response.status_code
+          json.field "url", delivery.url
+          json.field "body", body
+        end
+      end)
+      AiResponse.new(text, raw)
+    end
+
     private def self.payload_for(provider : AiProviderConfig, model : String, prompt : String, system_prompt : String?, tools : Array(ToolSpec)) : JSON::Any
       case provider.api
       when "openai-responses"
@@ -80,7 +109,7 @@ module Actra
           json.object do
             json.field "model", model
             json.field "input", prompt
-            json.field "instructions", system_prompt if system_prompt && !system_prompt.not_nil!.empty?
+            json.field "instructions", system_prompt if system_prompt && !system_prompt.empty?
             if tools.any?
               json.field "tools" do
                 json.array do
@@ -90,13 +119,21 @@ module Actra
             end
           end
         end)
+      when "forgefed"
+        JSON.parse(JSON.build do |json|
+          json.object do
+            json.field "model", model
+            json.field "input", prompt
+            json.field "instructions", system_prompt if system_prompt && !system_prompt.empty?
+          end
+        end)
       when "openai-completions", "openai-chat-completions", "openai-chat"
         JSON.parse(JSON.build do |json|
           json.object do
             json.field "model", model
             json.field "messages" do
               json.array do
-                if system_prompt && !system_prompt.not_nil!.empty?
+                if system_prompt && !system_prompt.empty?
                   json.object do
                     json.field "role", "system"
                     json.field "content", system_prompt

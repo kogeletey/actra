@@ -48,7 +48,7 @@ module Actra
         export LEFINE_TOKEN="${LEFINE_TOKEN:-}"
         export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
         export OPENAI_API_KEY="${OPENAI_API_KEY:-}"
-        export ACTRA_LAUNCH_REMOTE="${ACTRA_LAUNCH_REMOTE:-@code}"
+        export ACTRA_LAUNCH_REMOTE="${ACTRA_LAUNCH_REMOTE:-@remote@lefine.pro}"
         export ACTRA_DEFAULT_SERVER="${ACTRA_DEFAULT_SERVER:-lefine.pro}"
         SH
       else
@@ -87,7 +87,7 @@ module Actra
       }
 
       function '?' { command #{binary} query "$@"; }
-      typeset -ga ACTRA_AT_ACTIONS=(code assistant agent run background remote container)
+      typeset -ga ACTRA_AT_ACTIONS=()
       typeset -g ACTRA_AT_ACTION_INDEX=-1
       typeset -g ACTRA_AT_ACTION=""
       typeset -ga ACTRA_AT_MODES=(actions files stats)
@@ -102,9 +102,7 @@ module Actra
 
       _actra_at_action_label() {
         case "$1" in
-          code) echo "code" ;;
-          assistant) echo "assistant (AI)" ;;
-          agent) echo "agent (AI)" ;;
+          agent) echo "run agent" ;;
           run) echo "run local" ;;
           background) echo "background" ;;
           remote) echo "remote" ;;
@@ -115,16 +113,26 @@ module Actra
 
       _actra_at_next_action() {
         local count="${#ACTRA_AT_ACTIONS[@]}"
-        ACTRA_AT_ACTION_INDEX=$(( (${ACTRA_AT_ACTION_INDEX:--1} + 1) % count ))
+        if (( count <= 0 )); then
+          ACTRA_AT_ACTION_INDEX=-1
+          ACTRA_AT_ACTION=""
+          return
+        fi
+        ACTRA_AT_ACTION_INDEX=$(( (${ACTRA_AT_ACTION_INDEX:-0} % count) + 1 ))
         ACTRA_AT_ACTION="${ACTRA_AT_ACTIONS[$ACTRA_AT_ACTION_INDEX]}"
       }
 
       _actra_at_prev_action() {
         local count="${#ACTRA_AT_ACTIONS[@]}"
-        if (( ${ACTRA_AT_ACTION_INDEX:--1} < 0 )); then
-          ACTRA_AT_ACTION_INDEX=$(( count - 1 ))
+        if (( count <= 0 )); then
+          ACTRA_AT_ACTION_INDEX=-1
+          ACTRA_AT_ACTION=""
+          return
+        fi
+        if (( ${ACTRA_AT_ACTION_INDEX:-0} <= 1 )); then
+          ACTRA_AT_ACTION_INDEX=$count
         else
-          ACTRA_AT_ACTION_INDEX=$(( (ACTRA_AT_ACTION_INDEX + count - 1) % count ))
+          ACTRA_AT_ACTION_INDEX=$(( ACTRA_AT_ACTION_INDEX - 1 ))
         fi
         ACTRA_AT_ACTION="${ACTRA_AT_ACTIONS[$ACTRA_AT_ACTION_INDEX]}"
       }
@@ -132,8 +140,11 @@ module Actra
       _actra_at_load_action_candidates() {
         local line="${1-}"
         local query output candidate
-        local -a candidates=(code assistant agent run background remote container)
+        local -a candidates=()
         query="$(_actra_at_action_query "$line")"
+        if [[ -n "$query" ]]; then
+          candidates=(agent run background remote container)
+        fi
         if [[ "${ACTRA_AT_ACTION_CANDIDATES_LOADED:-0}" == "1" && "$ACTRA_AT_ACTION_QUERY_CACHE" == "$query" ]]; then
           return
         fi
@@ -210,7 +221,7 @@ module Actra
       _actra_at_next_mode() {
         local line="${1-}"
         local count="${#ACTRA_AT_MODES[@]}"
-        ACTRA_AT_MODE_INDEX=$(( (${ACTRA_AT_MODE_INDEX:--1} + 1) % count ))
+        ACTRA_AT_MODE_INDEX=$(( (${ACTRA_AT_MODE_INDEX:-0} % count) + 1 ))
         ACTRA_AT_MODE="${ACTRA_AT_MODES[$ACTRA_AT_MODE_INDEX]}"
         if [[ "$ACTRA_AT_MODE" == "actions" ]]; then
           ACTRA_AT_ACTION_INDEX=-1
@@ -230,10 +241,10 @@ module Actra
       _actra_at_prev_mode() {
         local line="${1-}"
         local count="${#ACTRA_AT_MODES[@]}"
-        if (( ${ACTRA_AT_MODE_INDEX:--1} < 0 )); then
-          ACTRA_AT_MODE_INDEX=$(( count - 1 ))
+        if (( ${ACTRA_AT_MODE_INDEX:-0} <= 1 )); then
+          ACTRA_AT_MODE_INDEX=$count
         else
-          ACTRA_AT_MODE_INDEX=$(( (ACTRA_AT_MODE_INDEX + count - 1) % count ))
+          ACTRA_AT_MODE_INDEX=$(( ACTRA_AT_MODE_INDEX - 1 ))
         fi
         ACTRA_AT_MODE="${ACTRA_AT_MODES[$ACTRA_AT_MODE_INDEX]}"
         if [[ "$ACTRA_AT_MODE" == "actions" ]]; then
@@ -259,6 +270,14 @@ module Actra
           action" "*) query="${query#action }";;
           actions) query="";;
           actions" "*) query="${query#actions }";;
+          agent) query="";;
+          agent" "*) query="${query#agent }";;
+          agents) query="";;
+          agents" "*) query="${query#agents }";;
+          file) query="";;
+          file" "*) query="${query#file }";;
+          files) query="";;
+          files" "*) query="${query#files }";;
           *) query="$query";;
         esac
         query="${query# }"
@@ -273,6 +292,10 @@ module Actra
           action" "*) query="${query#action }";;
           actions) query="";;
           actions" "*) query="${query#actions }";;
+          agent) query="";;
+          agent" "*) query="${query#agent }";;
+          agents) query="";;
+          agents" "*) query="${query#agents }";;
           *) query="$query";;
         esac
         query="${query# }"
@@ -303,6 +326,15 @@ module Actra
         printf '\e[0J'
       }
 
+      _actra_at_clear_preview() {
+        printf '\e7'
+        printf '\r'
+        printf '\e[1E'
+        printf '\r'
+        printf '\e[0J'
+        printf '\e8'
+      }
+
       _actra_at_show_mode_preview() {
         local query="$(_actra_at_mode_query "$BUFFER")"
         local output menu
@@ -325,7 +357,11 @@ module Actra
         _actra_at_load_action_candidates "$BUFFER"
         local label
         local output menu
-        output="$(_actra_at_action_preview_cached "$ACTRA_AT_ACTION" "$query")"
+        if [[ -n "$ACTRA_AT_ACTION" ]]; then
+          output="$(_actra_at_action_preview_cached "$ACTRA_AT_ACTION" "$query")"
+        else
+          output=""
+        fi
         menu="$(_actra_at_print_mode_picker)"
         for candidate in "${ACTRA_AT_ACTIONS[@]}"; do
           label="$(_actra_at_action_label "$candidate")"
@@ -443,6 +479,7 @@ module Actra
       function '@' {
         local action="${ACTRA_AT_ACTION:-}"
         local output exit_status
+        _actra_at_clear_preview
         ACTRA_AT_ACTION=""
         ACTRA_AT_ACTION_INDEX=-1
         ACTRA_AT_MODE=""
@@ -454,7 +491,7 @@ module Actra
         ACTRA_AT_FILE_PREVIEW_CACHE_KEY=""
         ACTRA_AT_FILE_PREVIEW_CACHE_VALUE=""
         case "$action" in
-          code|assistant|agent|run|background|remote|container|stats) output="$(ACTRA_SHELL_HOOK=1 command #{binary} @ --action "$action" "$@")"; exit_status=$? ;;
+          agent|run|background|remote|container|stats) output="$(ACTRA_SHELL_HOOK=1 command #{binary} @ --action "$action" "$@")"; exit_status=$? ;;
           *)
             if [[ -n "$action" ]]; then
               output="$(ACTRA_SHELL_HOOK=1 command #{binary} @ "$action" "$@")"; exit_status=$?
@@ -476,18 +513,6 @@ module Actra
         esac
         return "$exit_status"
       }
-      function '@code' { _actra_dispatch "@code" "$@"; }
-      function '@assistant' { command #{binary} @ --action assistant "$@"; }
-      function '@agent' { command #{binary} @ --action agent "$@"; }
-      function '@run' { command #{binary} @ --action run "$@"; }
-      function '@background' { command #{binary} @ --action background "$@"; }
-      function '@remote' { command #{binary} @ --action remote "$@"; }
-      function '@container' { command #{binary} @ --action container "$@"; }
-      function '@stats' { command #{binary} @ --action stats "$@"; }
-      function '@plan' { _actra_dispatch "@plan" "$@"; }
-      function '@claude' { _actra_dispatch "@claude" "$@"; }
-      function '@codex' { _actra_dispatch "@codex" "$@"; }
-
       _actra_complete_at() {
         local -a matches
         matches=("${(@f)$(command #{binary} complete at "$PREFIX" 2>/dev/null)}")
@@ -509,6 +534,7 @@ module Actra
         case "$1" in
           @) command #{binary} @ "${@:2}" ;;
           @\\?) return 127 ;;
+          @stats|@statistics) command #{binary} @ --action stats "${@:2}" ;;
           \\?*) _actra_query "$@" ;;
           @*) _actra_dispatch "$@" ;;
           *) return 127 ;;
@@ -538,7 +564,7 @@ module Actra
       }
 
       ?() { command #{binary} query "$@"; }
-      ACTRA_AT_ACTIONS=(code assistant agent run background remote container)
+      ACTRA_AT_ACTIONS=()
       ACTRA_AT_ACTION_INDEX=-1
       ACTRA_AT_ACTION=""
       ACTRA_AT_MODES=(actions files stats)
@@ -553,9 +579,7 @@ module Actra
 
       _actra_at_action_label() {
         case "$1" in
-          code) printf '%s' "code" ;;
-          assistant) printf '%s' "assistant (AI)" ;;
-          agent) printf '%s' "agent (AI)" ;;
+          agent) printf '%s' "run agent" ;;
           run) printf '%s' "run local" ;;
           background) printf '%s' "background" ;;
           remote) printf '%s' "remote" ;;
@@ -566,12 +590,22 @@ module Actra
 
       _actra_at_next_action() {
         local count="${#ACTRA_AT_ACTIONS[@]}"
+        if (( count <= 0 )); then
+          ACTRA_AT_ACTION_INDEX=-1
+          ACTRA_AT_ACTION=""
+          return
+        fi
         ACTRA_AT_ACTION_INDEX=$(( (${ACTRA_AT_ACTION_INDEX:--1} + 1) % count ))
         ACTRA_AT_ACTION="${ACTRA_AT_ACTIONS[$ACTRA_AT_ACTION_INDEX]}"
       }
 
       _actra_at_prev_action() {
         local count="${#ACTRA_AT_ACTIONS[@]}"
+        if (( count <= 0 )); then
+          ACTRA_AT_ACTION_INDEX=-1
+          ACTRA_AT_ACTION=""
+          return
+        fi
         if (( ${ACTRA_AT_ACTION_INDEX:--1} < 0 )); then
           ACTRA_AT_ACTION_INDEX=$(( count - 1 ))
         else
@@ -583,8 +617,11 @@ module Actra
       _actra_at_load_action_candidates() {
         local line="${1-}"
         local query output candidate
-        local -a candidates=(code assistant agent run background remote container)
+        local -a candidates=()
         query="$(_actra_at_action_query "$line")"
+        if [[ -n "$query" ]]; then
+          candidates=(agent run background remote container)
+        fi
         if [[ "${ACTRA_AT_ACTION_CANDIDATES_LOADED:-0}" == "1" && "$ACTRA_AT_ACTION_QUERY_CACHE" == "$query" ]]; then
           return
         fi
@@ -707,6 +744,14 @@ module Actra
           action" "*) query="${query#action }";;
           actions) query="";;
           actions" "*) query="${query#actions }";;
+          agent) query="";;
+          agent" "*) query="${query#agent }";;
+          agents) query="";;
+          agents" "*) query="${query#agents }";;
+          file) query="";;
+          file" "*) query="${query#file }";;
+          files) query="";;
+          files" "*) query="${query#files }";;
           *) query="$query";;
         esac
         query="${query# }"
@@ -721,6 +766,10 @@ module Actra
           action" "*) query="${query#action }";;
           actions) query="";;
           actions" "*) query="${query#actions }";;
+          agent) query="";;
+          agent" "*) query="${query#agent }";;
+          agents) query="";;
+          agents" "*) query="${query#agents }";;
           *) query="$query";;
         esac
         query="${query# }"
@@ -751,6 +800,15 @@ module Actra
         printf '\e[0J'
       }
 
+      _actra_at_clear_preview() {
+        printf '\e7'
+        printf '\r'
+        printf '\e[1E'
+        printf '\r'
+        printf '\e[0J'
+        printf '\e8'
+      }
+
       _actra_at_show_mode_preview() {
         local query="$(_actra_at_mode_query "$READLINE_LINE")"
         local output
@@ -772,7 +830,11 @@ module Actra
         _actra_at_load_action_candidates "$READLINE_LINE"
         local label
         local output
-        output="$(_actra_at_action_preview_cached "$ACTRA_AT_ACTION" "$query")"
+        if [ -n "$ACTRA_AT_ACTION" ]; then
+          output="$(_actra_at_action_preview_cached "$ACTRA_AT_ACTION" "$query")"
+        else
+          output=""
+        fi
         _actra_at_render_preview
         _actra_at_print_mode_picker
         for candidate in "${ACTRA_AT_ACTIONS[@]}"; do
@@ -880,6 +942,7 @@ module Actra
       function @ {
         local action="${ACTRA_AT_ACTION:-}"
         local output exit_status
+        _actra_at_clear_preview
         ACTRA_AT_ACTION=""
         ACTRA_AT_ACTION_INDEX=-1
         ACTRA_AT_MODE=""
@@ -891,7 +954,7 @@ module Actra
         ACTRA_AT_FILE_PREVIEW_CACHE_KEY=""
         ACTRA_AT_FILE_PREVIEW_CACHE_VALUE=""
         case "$action" in
-          code|assistant|agent|run|background|remote|container|stats) output="$(ACTRA_SHELL_HOOK=1 command #{binary} @ --action "$action" "$@")"; exit_status=$? ;;
+          agent|run|background|remote|container|stats) output="$(ACTRA_SHELL_HOOK=1 command #{binary} @ --action "$action" "$@")"; exit_status=$? ;;
           *)
             if [ -n "$action" ]; then
               output="$(ACTRA_SHELL_HOOK=1 command #{binary} @ "$action" "$@")"; exit_status=$?
@@ -919,18 +982,6 @@ module Actra
         esac
         return "$exit_status"
       }
-      alias @code='_actra_dispatch @code'
-      alias @assistant='actra @ --action assistant'
-      alias @agent='actra @ --action agent'
-      alias @run='actra @ --action run'
-      alias @background='actra @ --action background'
-      alias @remote='actra @ --action remote'
-      alias @container='actra @ --action container'
-      alias @stats='actra @ --action stats'
-      alias @plan='_actra_dispatch @plan'
-      alias @claude='_actra_dispatch @claude'
-      alias @codex='_actra_dispatch @codex'
-
       _actra_complete_at() {
         local cur="${COMP_WORDS[COMP_CWORD]}"
         mapfile -t COMPREPLY < <(command #{binary} complete at "$cur" 2>/dev/null)
@@ -949,6 +1000,7 @@ module Actra
         case "$1" in
           @) command #{binary} @ "${@:2}" ;;
           @\\?) return 127 ;;
+          @stats|@statistics) command #{binary} @ --action stats "${@:2}" ;;
           \\?*) _actra_query "$@" ;;
           @*) _actra_dispatch "$@" ;;
           *) return 127 ;;

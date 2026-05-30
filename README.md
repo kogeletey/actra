@@ -1,14 +1,14 @@
 # Actra
 
-Actra turns OpenAPI/Swagger sites and ForgeFed actors into shell-native commands.
-It is based on `wacli`, with an added `@*` shell dispatch layer for actor tasks
-such as `@code`, `@plan`, and `@actor@domain.name`.
+Actra turns OpenAPI/Swagger sites, local agent providers, and ForgeFed actors
+into shell-native commands. It is based on `wacli`, with an added `@` launcher
+for agent, file, action, and actor workflows.
 
 Status: v0.1 (Crystal). The core implemented pieces are:
 - `.well-known/actra.json` manifest parsing and OpenAPI fetching
 - OpenAPI JSON detection (Swagger 2.0, OpenAPI 3.0, OpenAPI 3.1)
 - Operation routing by path tokens
-- RCL config at `~/.config/astra/config.rcl`
+- RCL config at `~/.config/actra/config.rcl`
 - `actra activate` shell hooks for `@*` commands
 - ForgeFed `Create(Ticket)` dry-run and delivery helpers
 - Pi-like agent modes: print, JSON events, JSONL RPC, sessions, and extension hooks
@@ -88,10 +88,8 @@ actra activate zsh --install
 After activation:
 
 ```sh
-@code "review this patch"
-@plan "split this implementation into steps"
-@claude "use Claude SDK auth"
-@codex "use Codex API auth"
+@ "review this patch"
+@ ollama "explain this repository"
 @alice@mastodon.social "create a federated task"
 @example.org get ping --dry-run
 ?example.org
@@ -102,9 +100,10 @@ After activation:
 `@actor@domain.name` creates a ForgeFed task for the actor inbox at
 `https://domain.name/users/actor/inbox`, which matches common Mastodon/Pleroma
 layouts. `@domain.name` uses the OpenAPI flow. `?tool` prints tool information
-by default and can generate Markdown docs with `?tool docs`. Actor commands such
-as `@code` and `@plan` come from `config.rcl`; `@claude` and `@codex` are local
-CLI bridges for `claude -p` and `codex exec`.
+by default and can generate Markdown docs with `?tool docs`. Bare `@ text`
+goes to the default configured agent provider and default model
+`@auto@lefine.pro`; `@ <provider> text` runs through that provider, and
+`@ <model> text` runs the default provider with the selected model.
 
 ### Configure Actra
 
@@ -132,7 +131,7 @@ actra --mode rpc
 actra --list-models
 actra --list-prompts
 actra --prompt review "review this patch"
-@agent --prompt debug "why does Tab flicker?"
+actra --prompt debug "why does Tab flicker?"
 actra --export <session-id> session.html
 actra -c "continue the last session"
 actra --fork <session-id> "try a different approach"
@@ -141,8 +140,7 @@ actra --fork <session-id> "try a different approach"
 Zerostack-style prompt modes are built in. The default is `code`; available
 modes are `default`, `code`, `plan`, `review`, `debug`, `ask`, `brainstorm`,
 `frontend-design`, `review-security`, `simplify`, and `write-prompt`. Use
-`--prompt <mode>` or `--prompt-mode <mode>` with `actra`, `actra agent`, or
-`@agent`.
+`--prompt <mode>` or `--prompt-mode <mode>` with `actra` or `actra agent`.
 
 RPC is JSONL over stdin/stdout. Minimal prompt command:
 
@@ -155,7 +153,7 @@ Provider config is RCL-native:
 ```rcl
 base do
   default_provider = "openai"
-  default_model = "gpt-4.1-mini"
+  default_model = "@auto@lefine.pro"
 end
 
 provider "openai" do
@@ -173,6 +171,32 @@ provider "openai-chat" do
 end
 ```
 
+ForgeFed actors can also be exposed as agent providers. The provider posts the
+prompt as a ForgeFed `Create(Ticket)` to the configured actor inbox:
+
+```rcl
+provider "remote-code" do
+  api = "forgefed"
+  server = "lefine.pro"
+  actor = "code"
+end
+```
+
+Specific `@` actions can choose optimized agent defaults without changing the
+global provider:
+
+```rcl
+at do
+  action "review" do
+    kind = "agent"
+    label = "Review"
+    provider = "remote-code"
+    model = "ticket"
+    prompt_modes = ["review"]
+  end
+end
+```
+
 `api_key` can be an environment variable name, a literal token, or a shell command prefixed with `!`.
 
 Shell auth helpers keep Lefine as the primary profile and expose standard SDK/API
@@ -187,9 +211,9 @@ actra_auth_status
 - Claude CLI/SDK: `ANTHROPIC_API_KEY`
 - Codex CLI/OpenAI API: `OPENAI_API_KEY`
 
-`@claude` calls `claude -p <task>` by default. Override the binary with
-`ACTRA_CLAUDE_CLI`. `@codex` calls `codex exec <task>` by default. Override the
-binary with `ACTRA_CODEX_CLI`.
+The shell activation does not install direct `@claude` or `@codex` shortcuts;
+use configured providers from the `@` launcher or explicit dispatch commands
+when a local bridge is required.
 
 Extension hooks run external commands with a JSON event on stdin. If the command prints JSON, that JSON replaces the payload for the next step:
 
@@ -244,24 +268,26 @@ actra activate bash --install
 actra -p '@src/actra/cli.cr' '@README.md' "review these files"
 ```
 
-`@ [query]` prints quick actor/action/file results below the prompt. Press `Tab`
+Bare `@ text` starts the default agent. Bare `@` prints quick agent/action/file
+results below the prompt. Press `Tab`
 or `j`/`k` on an `@...` line to move forward/backward through actions, with
 `Shift+Tab` also available as a fallback for backward navigation. The shell prints
 the selected action and its preview inline in the same terminal window. Actions
-cycle through code, assistant, agent, run, background, remote, and container. Pressing
-`@assistant`, `@agent`, `@run`, `@background`, `@remote`, `@container`, or
-`@stats` runs those actions directly.
+cycle through run, background, remote, and container. Model rows such as
+`model   @auto@lefine.pro (default)` can be selected as `@ @auto@lefine.pro ...`
+to keep the default provider and override only the model. Provider rows such as
+`agent   openai (default)` and `agent   ollama` can be selected as `@ openai ...`
+or `@ ollama ...`.
 Selecting a file opens a file action menu: insert a shell-safe `@path`, open it
 with the matching `filetype` editor, copy or insert its absolute path, run it,
-or `cd` to its folder. Actra expands `@path` prompt arguments into file
+delete it, or `cd` to its folder. Actra expands `@path` prompt arguments into file
 contents. `actra activate <bash|zsh>` also installs completion for configured
-actors such as `@code` and local `@path` prompt attachments.
+actors and local `@path` prompt attachments.
 
 Explicit command routing:
 
 ```sh
 @search "forgefed inbox examples"
-@code "fix parser"
 actra "what is ForgeFed?"
 ```
 
@@ -281,15 +307,20 @@ Tool info, docs, and launch:
 ?example.org launch
 actra launch --mode remote-lefine @example.org get ping
 actra launch --mode container --image alpine:latest @example.org get ping
+actra launch --mode container --runtime podman --image alpine:latest @example.org get ping
+actra launch --mode container --runtime containerd --image alpine:latest @example.org get ping
 actra launch --mode background @example.org get ping
 ```
 
 `?tool` is an informational shortcut. Use `?tool launch` when you want the
 remote/container/background launcher. Background launches write logs under
 `$XDG_CACHE_HOME/actra/launches` and keep running after the terminal exits.
-Container mode requires `--image` or `ACTRA_LAUNCH_IMAGE`. Remote Lefine mode
-submits a task to `@code` by default; override it with `--remote @actor` or
-`ACTRA_LAUNCH_REMOTE`.
+Container mode requires `--image` or `ACTRA_LAUNCH_IMAGE` and uses Docker by
+default. Override the runtime with `--runtime`, `ACTRA_LAUNCH_RUNTIME`, or
+`ACTRA_CONTAINER_RUNTIME`; supported compatible runtimes are `docker`,
+`podman`, `nerdctl`, and `containerd` (via `nerdctl`). Remote Lefine mode
+submits a task to `@remote@lefine.pro` by default; override it with
+`--remote @actor@domain` or `ACTRA_LAUNCH_REMOTE`.
 
 Agent tools are enabled by default. Restrict or disable them with:
 
@@ -496,14 +527,23 @@ Base URL:
 ## Local Config: `config.rcl`
 
 Path:
-- `$XDG_CONFIG_HOME/astra/config.rcl` (default: `$HOME/.config/astra/config.rcl`)
-- legacy fallback: `$XDG_CONFIG_HOME/actra/config.rcl`
+- `$XDG_CONFIG_HOME/actra/config.rcl` (default: `$HOME/.config/actra/config.rcl`)
+- legacy fallback: `$XDG_CONFIG_HOME/astra/config.rcl`
+
+Migration:
+
+```sh
+actra config migrate
+actra config update
+```
+
+Both commands move a legacy `astra/config.rcl` into the current `actra/config.rcl`
+path when needed. Existing current config files are validated and left untouched.
 
 Example:
 
 ```rcl
 base do
-  default_server = "lefine.pro"
   db_path = "$HOME/.cache/actra/actra.db"
   install_dir = "$HOME/.local/bin"
 end
@@ -525,33 +565,6 @@ end
 filetype "images" do
   patterns = ["*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp"]
   editor = "xdg-open"
-end
-
-server "lefine.pro" do
-  base_url = "https://lefine.pro"
-  actor_id = "https://lefine.pro/actor/shell"
-  inbox = "/inbox"
-  outbox = "/outbox"
-
-  http_signature do
-    key_id = "https://lefine.pro/actor/shell#main-key"
-    private_key_path = "$HOME/.config/actra/keys/shell.pem"
-    algorithm = "rsa-sha256"
-  end
-
-  actor "code" do
-    command = "@code"
-    inbox = "/inbox/code"
-    outbox = "/outbox/code"
-    work_type = "code"
-  end
-
-  actor "plan" do
-    command = "@plan"
-    inbox = "/inbox/plan"
-    outbox = "/outbox/plan"
-    work_type = "plan"
-  end
 end
 ```
 
@@ -589,9 +602,9 @@ Actra ships OpenAI-compatible local provider presets for Ollama and llama.cpp:
 
 ```sh
 actra --provider ollama --model llama3.1:8b "explain this repo"
-@agent --provider ollama --model qwen2.5-coder:7b --prompt code "fix this bug"
+@ ollama "fix this bug"
 actra --provider llama.cpp --model local "summarize README"
-@agent --provider llamacpp --model local --prompt ask "trace config loading"
+@ llamacpp "trace config loading"
 ```
 
 Agent tool permissions can be selected per run:

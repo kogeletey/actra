@@ -41,15 +41,13 @@ describe "launch mode" do
     end
   end
 
-  it "passes a command path and command line to the assistant mode" do
+  it "rejects assistant as a removed @ action" do
     stdout = IO::Memory.new
     stderr = IO::Memory.new
     code = Actra::CLI.run(["@", "--action", "assistant", "--dry-run", "printf", "ok"], IO::Memory.new, stdout, stderr)
 
-    code.should eq(0)
-    stdout.to_s.should contain("ASSISTANT")
-    stdout.to_s.should contain("Command path:")
-    stdout.to_s.should contain("Command line: 'printf' 'ok'")
+    code.should eq(1)
+    stderr.to_s.should contain("unknown @ action: assistant")
   end
 
   it "can dry-run a local command without backgrounding it" do
@@ -61,7 +59,7 @@ describe "launch mode" do
     stdout.to_s.should contain("'printf' 'ok'")
   end
 
-  it "runs a plain @ executable locally when there are no @ results" do
+  it "sends plain @ text to the default agent instead of local executable fallback" do
     with_launch_temp_root do |root|
       bin = File.join(root, "bin")
       FileUtils.mkdir_p(bin)
@@ -73,10 +71,10 @@ describe "launch mode" do
       begin
         stdout = IO::Memory.new
         stderr = IO::Memory.new
-        code = Actra::CLI.run(["@", "go"], IO::Memory.new, stdout, stderr)
+        code = Actra::CLI.run(["@", "--permission-state"], IO::Memory.new, stdout, stderr)
 
         code.should eq(0)
-        stdout.to_s.should eq("local go\n")
+        JSON.parse(stdout.to_s)["mode"].as_s.should eq("standard")
         stderr.to_s.should eq("")
       ensure
         if old_path
@@ -109,6 +107,36 @@ describe "launch mode" do
     stdout.to_s.should contain("'alpine:latest' 'printf' 'ok'")
   end
 
+  it "prints a container launch plan with a configured runtime" do
+    stdout = IO::Memory.new
+    stderr = IO::Memory.new
+    code = Actra::CLI.run(["launch", "--mode", "container", "--runtime", "docker", "--image", "alpine:latest", "--dry-run", "printf", "ok"], IO::Memory.new, stdout, stderr)
+
+    code.should eq(0)
+    stdout.to_s.should contain("'docker' 'run' '--rm' '-i'")
+    stdout.to_s.should contain("'alpine:latest' 'printf' 'ok'")
+  end
+
+  it "prints a podman container launch plan" do
+    stdout = IO::Memory.new
+    stderr = IO::Memory.new
+    code = Actra::CLI.run(["launch", "--mode", "container", "--runtime", "podman", "--image", "alpine:latest", "--dry-run", "printf", "ok"], IO::Memory.new, stdout, stderr)
+
+    code.should eq(0)
+    stdout.to_s.should contain("'podman' 'run' '--rm' '-i'")
+    stdout.to_s.should contain("'alpine:latest' 'printf' 'ok'")
+  end
+
+  it "maps containerd container launch plans to nerdctl" do
+    stdout = IO::Memory.new
+    stderr = IO::Memory.new
+    code = Actra::CLI.run(["launch", "--mode", "container", "--runtime", "containerd", "--image", "alpine:latest", "--dry-run", "printf", "ok"], IO::Memory.new, stdout, stderr)
+
+    code.should eq(0)
+    stdout.to_s.should contain("'nerdctl' 'run' '--rm' '-i'")
+    stdout.to_s.should contain("'alpine:latest' 'printf' 'ok'")
+  end
+
   it "prints a remote Lefine launch dry-run" do
     with_launch_temp_root do
       stdout = IO::Memory.new
@@ -116,7 +144,7 @@ describe "launch mode" do
       code = Actra::CLI.run(["launch", "--mode", "remote-lefine", "--dry-run", "printf", "ok"], IO::Memory.new, stdout, stderr)
 
       code.should eq(0)
-      stdout.to_s.should contain("POST https://lefine.pro/inbox/code")
+      stdout.to_s.should contain("POST https://lefine.pro/users/remote/inbox")
       stdout.to_s.should contain("Run this tool remotely with Lefine.")
       stdout.to_s.should contain("'printf' 'ok'")
     end

@@ -62,6 +62,106 @@ private def with_agent_root(base_url : String, api : String = "openai-responses"
 end
 
 describe "agent provider modes" do
+  it "delivers agent prompts through ForgeFed providers" do
+    captured = [] of String
+    base, server = start_ai_server(captured, "accepted")
+    begin
+      SpecTmpdir.with do |root|
+        ENV["ACTRA_TEST_ROOT"] = root
+        FileUtils.mkdir_p(Actra::Xdg.config_dir)
+        File.write(Actra::Xdg.config_path, %(
+          base do
+            default_provider = "remote-code"
+            default_server = "local"
+            session_dir = "$HOME/.cache/actra/test-sessions"
+          end
+
+          server "local" do
+            base_url = "#{base}"
+            actor_id = "#{base}/actor/shell"
+            inbox = "/inbox"
+
+            actor "code" do
+              command = "@code"
+              inbox = "/inbox/code"
+              outbox = "/outbox/code"
+              work_type = "code"
+            end
+          end
+
+          provider "remote-code" do
+            api = "forgefed"
+            server = "local"
+            actor = "code"
+            auth_header = false
+          end
+        ))
+
+        stdout = IO::Memory.new
+        stderr = IO::Memory.new
+        code = Actra::CLI.run(["agent", "--no-session", "ship it"], IO::Memory.new, stdout, stderr)
+
+        code.should eq(0)
+        stdout.to_s.should eq("accepted\n")
+        captured[0].should eq("/inbox/code")
+        activity = JSON.parse(captured[1])
+        activity["type"].as_s.should eq("Create")
+        activity["object"]["type"].as_s.should eq("Ticket")
+        activity["object"]["content"].as_s.should eq("ship it")
+      ensure
+        ENV.delete("ACTRA_TEST_ROOT")
+      end
+    ensure
+      server.close
+    end
+  end
+
+  it "routes configured at actions through their agent provider defaults" do
+    captured = [] of String
+    base, server = start_ai_server(captured)
+    begin
+      with_agent_root(base) do
+        File.write(Actra::Xdg.config_path, %(
+          base do
+            default_provider = "openai"
+            default_model = "default-model"
+            session_dir = "$HOME/.cache/actra/test-sessions"
+          end
+
+          provider "fast-local" do
+            api = "openai-responses"
+            base_url = "#{base}"
+            auth_header = false
+            default_model = "fast-model"
+          end
+
+          at do
+            action "review" do
+              kind = "agent"
+              label = "Review"
+              provider = "fast-local"
+              model = "fast-model"
+              prompt_modes = ["review"]
+            end
+          end
+        ))
+
+        stdout = IO::Memory.new
+        stderr = IO::Memory.new
+        code = Actra::CLI.run(["@", "--action", "review", "check this"], IO::Memory.new, stdout, stderr)
+
+        code.should eq(0)
+        stdout.to_s.should eq("provider text\n")
+        captured[0].should eq("/responses")
+        payload = JSON.parse(captured[1])
+        payload["model"].as_s.should eq("fast-model")
+        payload["input"].as_s.should contain("check this")
+      end
+    ensure
+      server.close
+    end
+  end
+
   it "prints help without entering agent/session mode" do
     stdout = IO::Memory.new
     stderr = IO::Memory.new
@@ -82,6 +182,14 @@ describe "agent provider modes" do
       code.should eq(0)
       stdout.to_s.should contain("local/test-model")
     end
+  end
+
+  it "uses @auto@lefine.pro as the default model when no model is configured" do
+    cfg = Actra::Config.default
+    request = Actra::AiProvider.build_request(cfg, nil, nil, "hello", nil)
+
+    request.model.should eq("@auto@lefine.pro")
+    request.payload["model"].as_s.should eq("@auto@lefine.pro")
   end
 
   it "lists live OpenAI-compatible local provider models when available" do

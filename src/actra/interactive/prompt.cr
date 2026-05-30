@@ -180,10 +180,11 @@ module Actra::Interactive
     end
 
     def self.file_context_candidates(prefix : String = "") : Array(String)
-      token_prefix = prefix.starts_with?("@") ? prefix[1..] : prefix
-      list_files
-        .select { |path| token_prefix.empty? || path.starts_with?(token_prefix) || File.basename(path).starts_with?(token_prefix) }
-        .map { |path| "@#{normalize_file_path(path)}" }
+      token_prefix = (prefix.starts_with?("@") ? prefix[1..] : prefix).strip.downcase
+      list_file_context_entries
+        .select { |entry| file_query_match?(entry.path, token_prefix) }
+        .sort { |left, right| compare_file_context_entries(left, right, token_prefix) }
+        .map { |entry| "@#{normalize_file_path(entry.path)}" }
     end
 
     def self.context_tokens(paths : Array(String)) : String
@@ -347,7 +348,7 @@ module Actra::Interactive
         if Process.find_executable("rg")
           Process.run("rg", ["--files"], output: out_io, error: Process::Redirect::Close)
         else
-          Process.run("find", [".", "-maxdepth", "6", "-type", "f", "-not", "-path", "./.git/*", "-print"], output: out_io, error: Process::Redirect::Close)
+          Process.run("find", [".", "-maxdepth", "8", "-type", "f", "-not", "-path", "./.git/*", "-print"], output: out_io, error: Process::Redirect::Close)
         end
       return [] of String unless status.success?
       out_io.to_s.lines.map { |line| normalize_file_path(line.strip) }.reject(&.empty?)
@@ -355,11 +356,105 @@ module Actra::Interactive
       [] of String
     end
 
+    private struct FileContextEntry
+      getter path : String
+      getter directory : Bool
+
+      def initialize(@path : String, @directory : Bool)
+      end
+    end
+
+    private def self.list_file_context_entries : Array(FileContextEntry)
+      entries = {} of String => FileContextEntry
+
+      list_files.each do |path|
+        normalized = normalize_file_path(path)
+        entries[normalized] = FileContextEntry.new(normalized, false)
+        each_parent_path(normalized) do |dir|
+          entries[dir] ||= FileContextEntry.new(dir, true)
+        end
+      end
+
+      list_directories.each do |path|
+        normalized = normalize_file_path(path)
+        next if normalized.empty? || normalized == "."
+        entries[normalized] ||= FileContextEntry.new(normalized, true)
+      end
+
+      entries.values
+    end
+
+    private def self.list_directories : Array(String)
+      return [] of String unless Process.find_executable("find")
+
+      out_io = IO::Memory.new
+      status = Process.run("find", [".", "-maxdepth", "8", "-type", "d", "-not", "-path", "./.git", "-not", "-path", "./.git/*", "-print"], output: out_io, error: Process::Redirect::Close)
+      return [] of String unless status.success?
+      out_io.to_s.lines.map { |line| normalize_file_path(line.strip) }.reject(&.empty?)
+    rescue
+      [] of String
+    end
+
+    private def self.each_parent_path(path : String, &)
+      dir = File.dirname(path)
+      until dir == "." || dir == "/" || dir.empty?
+        yield dir
+        parent = File.dirname(dir)
+        break if parent == dir
+        dir = parent
+      end
+    end
+
+    private def self.compare_file_context_entries(left : FileContextEntry, right : FileContextEntry, query : String) : Int32
+      left_score = file_query_score(left.path, query)
+      right_score = file_query_score(right.path, query)
+      return left_score <=> right_score unless left_score == right_score
+
+      left_type = left.directory ? 0 : 1
+      right_type = right.directory ? 0 : 1
+      return left_type <=> right_type unless left_type == right_type
+
+      left.path.downcase <=> right.path.downcase
+    end
+
+    private def self.file_query_score(path : String, query : String) : Int32
+      return 0 if query.empty?
+
+      normalized = normalize_file_path(path).downcase
+      basename = File.basename(normalized)
+      return 0 if normalized == query || basename == query
+      return 1 if normalized.starts_with?(query)
+      return 2 if basename.starts_with?(query)
+      return 3 if normalized.includes?(query) || basename.includes?(query)
+      4
+    end
+
+    private def self.file_query_match?(path : String, query : String) : Bool
+      return true if query.empty?
+
+      normalized = normalize_file_path(path).downcase
+      basename = File.basename(normalized)
+      tokens = query.split(/\s+/).reject(&.empty?)
+      tokens.all? do |token|
+        normalized.includes?(token) || basename.includes?(token) || fuzzy_match?(normalized, token)
+      end
+    end
+
+    private def self.fuzzy_match?(value : String, query : String) : Bool
+      offset = 0
+      query.each_char do |char|
+        found = value.index(char, offset)
+        return false unless found
+        offset = found + 1
+      end
+      true
+    end
+
     private def self.normalize_file_path(path : String) : String
       path.starts_with?("./") ? path[2..] : path
     end
 
-    private def self.with_raw_terminal
+    private def self.with_raw_terminal(&)
       state = IO::Memory.new
       status = begin
         Process.run("stty", ["-g"], output: state, error: Process::Redirect::Close)
@@ -400,12 +495,12 @@ module Actra::Interactive
         third = STDIN.read_byte
         return PickerKey::Cancel if third.nil?
         return case third
-               when 65 then PickerKey::Up
-               when 66 then PickerKey::Down
-               when 67, 68 then PickerKey::Unknown
-               else
-                 PickerKey::Unknown
-               end
+        when 65     then PickerKey::Up
+        when 66     then PickerKey::Down
+        when 67, 68 then PickerKey::Unknown
+        else
+          PickerKey::Unknown
+        end
       when 106
         PickerKey::Down
       when 107

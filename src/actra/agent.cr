@@ -199,7 +199,7 @@ module Actra
             stdout.puts line if !query || line.downcase.includes?(query)
           end
         elsif provider.models.empty?
-          model = provider.default_model || cfg.default_model || ENV["ACTRA_MODEL"]? || "gpt-4.1-mini"
+          model = provider.default_model || cfg.default_model || ENV["ACTRA_MODEL"]? || Config::DEFAULT_MODEL
           line = "#{provider_name}/#{model}\t#{provider.api}\t#{provider.base_url}"
           stdout.puts line if !query || line.downcase.includes?(query)
         else

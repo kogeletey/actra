@@ -13,6 +13,7 @@ module Actra
   struct Header
     getter name : String
     getter value : String
+
     def initialize(@name : String, @value : String); end
   end
 
@@ -32,7 +33,7 @@ module Actra
       @headers : Array(Tuple(String, String)),
       @path_aliases : Hash(String, String),
       @auth_scheme : String?,
-      @token_name : String?
+      @token_name : String?,
     )
     end
 
@@ -78,24 +79,24 @@ module Actra
 
     def self.fetch_tool(tool_ref : String, cfg : Config) : Manifest
       # Local override: ~/.config/actra/tools/<tool>.json
-      if (local = local_override_path(tool_ref)) && File.exists?(local)
+      if (local = local_override_path(tool_ref)) && File.file?(local)
         return parse(File.read(local))
       end
 
       # Local file manifest: actra ./path/to/actra.json ...
-      if File.exists?(tool_ref) && File.file?(tool_ref)
+      if File.file?(tool_ref)
         return parse(File.read(tool_ref))
       end
 
       # Local directory manifest: actra ./some/dir ...
-      if File.exists?(tool_ref) && File.directory?(tool_ref)
+      if File.directory?(tool_ref)
         [
           "#{tool_ref}/.well-known/actra.json",
           "#{tool_ref}/.well-know/actra.json",
           "#{tool_ref}/.well-known/wacli.json",
           "#{tool_ref}/.well-know/wacli.json",
         ].each do |p|
-          return parse(File.read(p)) if File.exists?(p)
+          return parse(File.read(p)) if File.file?(p)
         end
         raise ManifestNotFoundError.new("manifest not found in directory #{tool_ref}")
       end

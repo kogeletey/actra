@@ -60,6 +60,8 @@ module Actra
     getter headers : Hash(String, String)
     getter default_model : String?
     getter models : Hash(String, AiModelConfig)
+    getter forgefed_server : String?
+    getter forgefed_actor : String?
 
     def initialize(
       @name : String,
@@ -70,6 +72,8 @@ module Actra
       @headers : Hash(String, String),
       @default_model : String?,
       @models : Hash(String, AiModelConfig),
+      @forgefed_server : String? = nil,
+      @forgefed_actor : String? = nil,
     )
     end
   end
@@ -114,8 +118,12 @@ module Actra
     getter kind : String
     getter org_todo_path : String?
     getter category : String?
+    getter executor : String?
+    getter provider : String?
+    getter model : String?
+    getter prompt_modes : Array(String)
 
-    def initialize(@name : String, @label : String, @kind : String, @org_todo_path : String? = nil, @category : String? = nil)
+    def initialize(@name : String, @label : String, @kind : String, @org_todo_path : String? = nil, @category : String? = nil, @executor : String? = nil, @provider : String? = nil, @model : String? = nil, @prompt_modes : Array(String) = [] of String)
     end
   end
 
@@ -127,6 +135,8 @@ module Actra
   end
 
   struct Config
+    DEFAULT_MODEL = "@auto@lefine.pro"
+
     getter db_path : String
     getter install_dir : String
     getter uri_schemes : Hash(String, String)
@@ -176,8 +186,7 @@ module Actra
     end
 
     def self.default : Config
-      servers = default_servers
-      new(default_db_path, default_install_dir, {"registry" => "https://actra.ofs.lol"}, Render::Config.default, "lefine.pro", servers, "openai", nil, default_session_dir, default_providers, [] of ExtensionConfig, [] of FileEditorConfig, default_at_config)
+      new(default_db_path, default_install_dir, {"registry" => "https://actra.ofs.lol"}, Render::Config.default, "lefine.pro", {} of String => ServerConfig, "openai", nil, default_session_dir, default_providers, [] of ExtensionConfig, [] of FileEditorConfig, default_at_config)
     end
 
     def self.load_rcl(raw : String) : Config
@@ -261,7 +270,8 @@ module Actra
             label = h["label"]?.try(&.as_s?) || name
             path = h["org_todo_path"]?.try(&.as_s?).try { |p| expand_home(p) }
             category = h["category"]?.try(&.as_s?)
-            actions << AtMenuActionConfig.new(name, label, kind, path, category)
+            executor = h["executor"]?.try(&.as_s?) || h["assignee"]?.try(&.as_s?)
+            actions << AtMenuActionConfig.new(name, label, kind, path, category, executor, h["provider"]?.try(&.as_s?), h["model"]?.try(&.as_s?), h["prompt_modes"]?.try(&.as_a?).try { |a| a.compact_map(&.as_s?) } || [] of String)
           end
         end
         at = AtConfig.new(actions.empty? ? at.menu_actions : actions)
@@ -431,7 +441,7 @@ module Actra
         end
       end
 
-      AiProviderConfig.new(name, api, base_url.gsub(/\/+$/, ""), api_key, auth_header, headers, default_model, models)
+      AiProviderConfig.new(name, api, base_url.gsub(/\/+$/, ""), api_key, auth_header, headers, default_model, models, string_property(block, "server"), string_property(block, "actor"))
     end
 
     private def self.parse_extension(name : String, block : Rcl::Block) : ExtensionConfig
@@ -464,7 +474,8 @@ module Actra
           label = string_property(child, "label") || name
           path = string_property(child, "org_todo_path").try { |p| expand_home(p) }
           category = string_property(child, "category")
-          actions << AtMenuActionConfig.new(name, label, kind, path, category)
+          executor = string_property(child, "executor") || string_property(child, "assignee")
+          actions << AtMenuActionConfig.new(name, label, kind, path, category, executor, string_property(child, "provider"), string_property(child, "model"), array_property(child, "prompt_modes"))
         end
       end
 
@@ -579,13 +590,15 @@ module Actra
 
       pickers = Render::PickersConfig.default
       if ph = h["pickers"]?.try(&.as_h?)
-        prefer_fzf = ph["prefer_fzf"]?.try(&.as_bool?) || pickers.prefer_fzf
+        prefer_fzf = ph["prefer_fzf"]?.try(&.as_bool?)
+        prefer_fzf = pickers.prefer_fzf if prefer_fzf.nil?
         pickers = Render::PickersConfig.new(prefer_fzf)
       end
 
       interactive = Render::InteractiveConfig.default
       if ih = h["interactive"]?.try(&.as_h?)
-        enabled = ih["enabled"]?.try(&.as_bool?) || interactive.enabled
+        enabled = ih["enabled"]?.try(&.as_bool?)
+        enabled = interactive.enabled if enabled.nil?
         dt = Render::DateTimeConfig.default
         if dth = ih["datetime"]?.try(&.as_h?)
           days_ahead = dth["days_ahead"]?.try(&.as_i?) || dt.days_ahead
