@@ -126,6 +126,7 @@ module Actra
         json.object do
           json.field "prompt", context.prompt
           json.field "system_prompt", context.system_prompt
+          json.field "estimated_prompt_tokens", context.estimated_prompt_tokens
         end
       end)
       input_payload = runtime.emit("input", input_payload)
@@ -149,6 +150,7 @@ module Actra
           json.field "text", response.text
           json.field "provider", request.provider
           json.field "model", request.model
+          json.field "estimated_prompt_tokens", context.estimated_prompt_tokens
         end
       end))
 

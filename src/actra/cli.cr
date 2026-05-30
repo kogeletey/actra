@@ -303,7 +303,7 @@ module Actra
     end
 
     private def self.at_built_in_action_candidates : Array(String)
-      ["agent", "run", "background", "remote", "container", "stats"]
+      ["agent", "run", "background", "remote", "container"]
     end
 
     private def self.action_completion_candidates : Array(String)
@@ -1403,9 +1403,6 @@ module Actra
 
       preview =
         case normalized
-        when "stats"
-          command = query.empty? ? "actra @ --action stats" : "actra @ --action stats #{command_line(argv)}"
-          "show #{command}"
         when "agent"
           query.empty? ? "missing task" : "actra agent #{command_line(argv)}"
         else
@@ -1429,8 +1426,6 @@ module Actra
         run_agent(parse_agent_options(argv), stdin, stdout, stderr)
       when "run", "background", "remote", "container"
         run_launch(["--mode", normalized] + argv, stdin, stdout, stderr)
-      when "stats"
-        run_at_session_stats(argv, stdout, stderr)
       else
         if action_config = at_menu_action?(action)
           task = argv.join(" ").strip
@@ -1447,61 +1442,6 @@ module Actra
 
     private def self.at_menu_action?(action : String) : AtMenuActionConfig?
       Config.load.at.menu_actions.find { |candidate| candidate.name == action || candidate.label == action }
-    end
-
-    private def self.run_at_session_stats(argv : Array(String), stdout : IO, stderr : IO) : Int32
-      session_dir = argv[0]?
-      session_dir = session_dir.strip if session_dir
-      session_dir = Config.load.session_dir if session_dir.nil? || session_dir.empty?
-      session_dir = File.expand_path(session_dir)
-      unless Dir.exists?(session_dir)
-        stdout.puts "sessions: 0"
-        stdout.puts "messages: 0"
-        return 0
-      end
-
-      session_files = Dir.glob(File.join(session_dir, "*.jsonl")).sort
-      total_messages = 0
-      role_counts = Hash(String, Int32).new(0)
-      first_message : Time? = nil
-      last_message : Time? = nil
-
-      session_files.each do |path|
-        File.read_lines(path).each do |line|
-          next if line.empty?
-          any = JSON.parse(line) rescue next
-          next unless any["type"]?.try(&.as_s?) == "message"
-          role = any["role"]?.try(&.as_s?)
-          next unless role
-          total_messages += 1
-          role_counts[role] += 1
-          if ts = any["timestamp"]?.try(&.as_s?)
-            parsed = Time.parse_rfc3339(ts) rescue nil
-            if parsed
-              first_message = parsed if first_message.nil? || parsed < first_message
-              last_message = parsed if last_message.nil? || parsed > last_message
-            end
-          end
-        end
-      end
-
-      stdout.puts "sessions: #{session_files.size}"
-      stdout.puts "messages: #{total_messages}"
-      if total_messages > 0
-        role_counts.to_a.sort_by(&.first).each do |role, count|
-          stdout.puts "messages.#{role}: #{count}"
-        end
-        if first_message
-          stdout.puts "first_message: #{first_message.to_s}"
-        end
-        if last_message
-          stdout.puts "last_message: #{last_message.to_s}"
-        end
-      end
-      0
-    rescue ex
-      stderr.puts ex.message
-      1
     end
 
     private def self.run_selected_at_entry(entry : AtLauncherEntry, text : String, stdin : IO, stdout : IO, stderr : IO) : Int32
@@ -1616,6 +1556,8 @@ module Actra
       case mode
       when "files", "file-search", "file_search"
         "file"
+      when "context", "contexts"
+        "file"
       when "action", "actions-search", "actions_search"
         "actions"
       when "local"
@@ -1635,14 +1577,12 @@ module Actra
 
     private def self.at_action?(action : String) : Bool
       normalized = normalize_at_action(action)
-      return true if {"agent", "run", "background", "remote", "container", "stats"}.includes?(normalized)
+      return true if {"agent", "run", "background", "remote", "container"}.includes?(normalized)
       !!at_menu_action?(action)
     end
 
     private def self.normalize_at_action(action : String) : String
       case action
-      when "statistics"
-        "stats"
       when "local"
         "run"
       when "bg"
@@ -1659,7 +1599,7 @@ module Actra
       return nil unless token.starts_with?("@")
       action = token[1..]
       return nil if action.empty?
-      return nil unless {"agent", "run", "background", "remote", "container", "statistics", "stats"}.includes?(action)
+      return nil unless {"agent", "run", "background", "remote", "container"}.includes?(action)
       normalize_at_action(action)
     end
 

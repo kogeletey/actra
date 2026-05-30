@@ -62,6 +62,32 @@ private def with_agent_root(base_url : String, api : String = "openai-responses"
 end
 
 describe "agent provider modes" do
+  it "expands directory context and reports estimated token usage" do
+    captured = [] of String
+    base, server = start_ai_server(captured)
+    begin
+      with_agent_root(base) do |root|
+        FileUtils.mkdir_p(File.join(root, "docs"))
+        File.write(File.join(root, "docs", "a.md"), "Alpha")
+        File.write(File.join(root, "docs", "b.md"), "Beta")
+
+        stdout = IO::Memory.new
+        stderr = IO::Memory.new
+        code = Actra::CLI.run(["-p", "--no-session", "@docs", "summarize"], IO::Memory.new, stdout, stderr)
+
+        code.should eq(0)
+        payload = JSON.parse(captured[1])
+        input = payload["input"].as_s
+        input.should contain("Directory: docs")
+        input.should contain("--- a.md ---")
+        input.should contain("--- b.md ---")
+        payload["estimated_prompt_tokens"].as_i.should be > 0
+      end
+    ensure
+      server.close
+    end
+  end
+
   it "delivers agent prompts through ForgeFed providers" do
     captured = [] of String
     base, server = start_ai_server(captured, "accepted")

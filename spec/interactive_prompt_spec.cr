@@ -171,8 +171,8 @@ describe Actra::Interactive::PickerTui do
 
       stdout = IO::Memory.new
       stderr = IO::Memory.new
-      Actra::CLI.run(["@", "--action-preview", "statistics", "local"], IO::Memory.new, stdout, stderr).should eq(0)
-      stdout.to_s.should contain("action  stats: show actra @ --action stats 'local'")
+      Actra::CLI.run(["@", "--action-preview", "statistics", "local"], IO::Memory.new, stdout, stderr).should eq(1)
+      stderr.to_s.should contain("unknown @ action: statistics")
 
       stdout = IO::Memory.new
       stderr = IO::Memory.new
@@ -227,23 +227,11 @@ describe Actra::Interactive::PickerTui do
       end
     end
 
-    with_fake_fzf do
-      stdout = IO::Memory.new
-      stderr = IO::Memory.new
-
-      code = Actra::CLI.run(["@", "--action", "stats"], IO::Memory.new, stdout, stderr)
-
-      code.should eq(0)
-      stdout.to_s.should contain("sessions:")
-      stdout.to_s.should contain("messages:")
-
-      stdout = IO::Memory.new
-      stderr = IO::Memory.new
-      code = Actra::CLI.run(["@", "--action", "statistics"], IO::Memory.new, stdout, stderr)
-      code.should eq(0)
-      stdout.to_s.should contain("sessions:")
-      stdout.to_s.should contain("messages:")
-    end
+    stdout = IO::Memory.new
+    stderr = IO::Memory.new
+    code = Actra::CLI.run(["@", "--action", "stats"], IO::Memory.new, stdout, stderr)
+    code.should eq(1)
+    stderr.to_s.should contain("unknown @ action: stats")
   end
 
   it "runs an executable file from the file submenu" do

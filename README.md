@@ -266,22 +266,24 @@ actra activate bash --install
 @ cli
 @ rev
 actra -p '@src/actra/cli.cr' '@README.md' "review these files"
+actra -p '@src/actra' "summarize this directory"
 ```
 
-Bare `@ text` starts the default agent. Bare `@` prints quick agent/action/file
+Bare `@ text` starts the default agent. Bare `@` prints quick agent/action/context
 results below the prompt. Press `Tab`
 or `j`/`k` on an `@...` line to move forward/backward through actions, with
 `Shift+Tab` also available as a fallback for backward navigation. The shell prints
 the selected action and its preview inline in the same terminal window. Actions
-cycle through run, background, remote, and container. Model rows such as
+cycle through actions and context. Model rows such as
 `model   @auto@lefine.pro (default)` can be selected as `@ @auto@lefine.pro ...`
 to keep the default provider and override only the model. Provider rows such as
 `agent   openai (default)` and `agent   ollama` can be selected as `@ openai ...`
 or `@ ollama ...`.
-Selecting a file opens a file action menu: insert a shell-safe `@path`, open it
+Selecting a context path opens a file action menu: insert a shell-safe `@path`, open it
 with the matching `filetype` editor, copy or insert its absolute path, run it,
 delete it, or `cd` to its folder. Actra expands `@path` prompt arguments into file
-contents. `actra activate <bash|zsh>` also installs completion for configured
+or bounded directory contents and adds an approximate token count to provider
+payloads and extension events. `actra activate <bash|zsh>` also installs completion for configured
 actors and local `@path` prompt attachments.
 
 Explicit command routing:
